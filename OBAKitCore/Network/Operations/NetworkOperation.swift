@@ -22,7 +22,10 @@ public enum APIError: Error, LocalizedError {
     /// The user has disabled cellular data for this app in iOS Settings.
     case cellularDataRestricted
 
-    /// The regional server returned a 5xx error or timed out.
+    /// The regional server returned a 500 Internal Server Error but is still running.
+    case serverError(regionName: String)
+
+    /// The regional server is down or unreachable (502, 503, 504, or timeout).
     case serverUnavailable(regionName: String, statusCode: Int?)
 
     public var errorDescription: String? {
@@ -87,6 +90,13 @@ public enum APIError: Error, LocalizedError {
                 value: "OneBusAway is not currently allowed to access cellular data. To fix this, go to Settings > Cellular and enable cellular data for OneBusAway, or connect to a WiFi network.",
                 comment: "An error that tells the user that cellular data access is disabled for this app in iOS Settings."
             )
+        case .serverError(let regionName):
+            let fmt = OBALoc(
+                "api_error.server_error_fmt",
+                value: "The server for %@ encountered an error while handling your request. Please try again.",
+                comment: "An error shown when the server returns a 500 Internal Server Error. The substituted value is the region name, e.g. 'Puget Sound'."
+            )
+            return String(format: fmt, regionName)
         case .serverUnavailable(let regionName, _):
             let fmt = OBALoc(
                 "api_error.server_unavailable_fmt",

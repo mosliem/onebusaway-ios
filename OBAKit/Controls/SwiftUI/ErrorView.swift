@@ -48,7 +48,7 @@ struct ErrorView: View {
             switch apiError {
             case .cellularDataRestricted, .networkFailure:
                 return "wifi.slash"
-            case .serverUnavailable:
+            case .serverError, .serverUnavailable:
                 return "server.rack"
             case .captivePortal:
                 return "lock.shield"

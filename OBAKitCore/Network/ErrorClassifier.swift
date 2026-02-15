@@ -61,8 +61,16 @@ public enum ErrorClassifier {
 
     private static func classifyAPIError(_ apiError: APIError, regionName: String?) -> Error {
         switch apiError {
-        case .requestFailure(let response) where isServerError(statusCode: response.statusCode):
-            // Upgrade generic requestFailure with 5xx status to a region-aware server-down message.
+        case .requestFailure(let response) where response.statusCode == 500:
+            // 500 = server is running but hit an internal error. User should retry.
+            guard let regionName else {
+                logger.warning("Server error 500 but no region name available for user message.")
+                return apiError
+            }
+            return APIError.serverError(regionName: regionName)
+
+        case .requestFailure(let response) where isServerUnavailable(statusCode: response.statusCode):
+            // 502, 503, 504 = server is down or unreachable.
             guard let regionName else {
                 logger.warning("Server error \(response.statusCode) but no region name available for user message.")
                 return apiError
@@ -128,7 +136,7 @@ public enum ErrorClassifier {
 
     // MARK: - Helpers
 
-    private static func isServerError(statusCode: Int) -> Bool {
-        return (500...599).contains(statusCode)
+    private static func isServerUnavailable(statusCode: Int) -> Bool {
+        return (501...599).contains(statusCode)
     }
 }

@@ -68,9 +68,9 @@ class ErrorClassifierTests: XCTestCase {
         }
     }
 
-    // MARK: - Server Error Upgrade (5xx → serverUnavailable)
+    // MARK: - Server Error Classification (500 vs other 5xx)
 
-    func test_classify_requestFailure500_becomesServerUnavailable() {
+    func test_classify_requestFailure500_becomesServerError() {
         let url = URL(string: "https://api.pugetsound.onebusaway.org/api/where/stops.json")!
         let response = HTTPURLResponse(url: url, statusCode: 500, httpVersion: nil, headerFields: nil)!
         let error = APIError.requestFailure(response)
@@ -82,12 +82,19 @@ class ErrorClassifierTests: XCTestCase {
         }
 
         switch apiError {
-        case .serverUnavailable(let regionName, let statusCode):
+        case .serverError(let regionName):
             expect(regionName) == "Puget Sound"
-            expect(statusCode) == 500
         default:
-            fail("Expected .serverUnavailable, got \(apiError)")
+            fail("Expected .serverError, got \(apiError)")
         }
+    }
+
+    func test_serverError_errorDescription_suggestsRetry() {
+        let error = APIError.serverError(regionName: "Puget Sound")
+        let description = error.localizedDescription
+
+        expect(description).to(contain("Puget Sound"))
+        expect(description).to(contain("try again"))
     }
 
     func test_classify_requestFailure503_becomesServerUnavailable() {
@@ -286,6 +293,26 @@ class ErrorClassifierTests: XCTestCase {
         let result = ErrorClassifier.classify(error, regionName: "Puget Sound")
 
         expect(result.localizedDescription) == "Something unrelated happened"
+    }
+
+    func test_classify_requestFailure502_becomesServerUnavailable() {
+        let url = URL(string: "https://api.pugetsound.onebusaway.org/api/where/stops.json")!
+        let response = HTTPURLResponse(url: url, statusCode: 502, httpVersion: nil, headerFields: nil)!
+        let error = APIError.requestFailure(response)
+        let result = ErrorClassifier.classify(error, regionName: "Puget Sound")
+
+        guard let apiError = result as? APIError else {
+            fail("Expected APIError, got \(type(of: result))")
+            return
+        }
+
+        switch apiError {
+        case .serverUnavailable(let regionName, let statusCode):
+            expect(regionName) == "Puget Sound"
+            expect(statusCode) == 502
+        default:
+            fail("Expected .serverUnavailable, got \(apiError)")
+        }
     }
 
     // MARK: - serverUnavailable Error Description

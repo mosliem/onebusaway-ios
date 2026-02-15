@@ -54,6 +54,13 @@ open class CoreApplication: NSObject,
         return regionsService.currentRegion
     }
 
+    /// The display name of the current region, suitable for use in user-facing error messages.
+    ///
+    /// Returns `nil` when no region is selected.
+    public var currentRegionName: String? {
+        return currentRegion?.name
+    }
+
     /// Provides access to the OneBusAway REST API
     ///
     /// - Note: See [develop.onebusaway.org](http://developer.onebusaway.org/modules/onebusaway-application-modules/current/api/where/index.html)
@@ -224,9 +231,11 @@ open class CoreApplication: NSObject,
 
     // MARK: - Error Handling
 
+    /// Classifies and displays an error to the user via `ErrorClassifier`.
     @MainActor
     open func displayError(_ error: Error) async {
-        Logger.error("Error: \(error.localizedDescription)")
+        let classified = ErrorClassifier.classify(error, regionName: currentRegionName)
+        Logger.error("Error: \(classified.localizedDescription)")
     }
 
     // MARK: - Surveys

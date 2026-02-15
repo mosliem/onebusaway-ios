@@ -253,7 +253,8 @@ class SearchInteractor: NSObject {
             return OBAListViewSection(id: ListSection.placemarks.rawValue, title: sectionTitle, contents: [item])
 
         case .error(let error):
-            var item = OBAListRowView.DefaultViewModel(title: error.localizedDescription, accessoryType: .none)
+            let classified = ErrorClassifier.classify(error, regionName: application.currentRegionName)
+            var item = OBAListRowView.DefaultViewModel(title: classified.localizedDescription, accessoryType: .none)
             // Set appropriate error icon based on error type
             if let apiError = error as? APIError {
                 switch apiError {

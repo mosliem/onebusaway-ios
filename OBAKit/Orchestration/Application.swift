@@ -564,12 +564,7 @@ public class Application: CoreApplication, PushServiceDelegate {
 
     // MARK: - Error Visualization
 
-    /// Displays an error to the end user.
-    ///
-    /// Hopefully, the error object conforms to `LocalizedError` and provides an understandable, localized
-    /// explanation to the user via `localizedDescription`.
-    ///
-    /// - Parameter error: The error to display.
+    /// Classifies and displays an error to the end user.
     @MainActor
     public override func displayError(_ error: Error) async {
         await super.displayError(error)
@@ -577,7 +572,7 @@ public class Application: CoreApplication, PushServiceDelegate {
         analytics?.reportError?(error)
 
         guard let uiApp = delegate?.uiApplication else { return }
-        let bulletin = ErrorBulletin(application: self, message: error.localizedDescription, error: error)
+        let bulletin = ErrorBulletin(application: self, error: error, regionName: currentRegionName)
         bulletin.show(in: uiApp)
         self.errorBulletin = bulletin
     }

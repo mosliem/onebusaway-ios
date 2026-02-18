@@ -17,18 +17,16 @@ struct ErrorView: View {
     var regionName: String?
     var onRetry: (() -> Void)?
 
-    private var classifiedError: Error {
-        ErrorClassifier.classify(error, regionName: regionName)
-    }
-
     var body: some View {
+        let classified = ErrorClassifier.classify(error, regionName: regionName)
+
         VStack(spacing: 16) {
-            Image(systemName: errorIconName)
+            Image(systemName: iconName(for: classified))
                 .font(.largeTitle)
                 .foregroundStyle(.red)
             Text(headline)
                 .font(.headline)
-            Text(classifiedError.localizedDescription)
+            Text(classified.localizedDescription)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -43,20 +41,21 @@ struct ErrorView: View {
     }
 
     /// Returns an appropriate SF Symbol name based on the classified error type.
-    private var errorIconName: String {
-        if let apiError = classifiedError as? APIError {
-            switch apiError {
-            case .cellularDataRestricted, .networkFailure:
-                return "wifi.slash"
-            case .serverError, .serverUnavailable:
-                return "server.rack"
-            case .captivePortal:
-                return "lock.shield"
-            default:
-                return "exclamationmark.triangle"
-            }
+    private func iconName(for classified: Error) -> String {
+        guard let apiError = classified as? APIError else {
+            return "exclamationmark.triangle"
         }
-        return "exclamationmark.triangle"
+
+        switch apiError {
+        case .cellularDataRestricted, .networkFailure:
+            return "wifi.slash"
+        case .serverError, .serverUnavailable:
+            return "server.rack"
+        case .captivePortal:
+            return "lock.shield"
+        default:
+            return "exclamationmark.triangle"
+        }
     }
 }
 

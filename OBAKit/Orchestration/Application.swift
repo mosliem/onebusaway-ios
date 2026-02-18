@@ -9,6 +9,7 @@
 
 import UIKit
 import Combine
+import CoreTelephony
 import Hyperconnectivity
 import CoreLocation
 import OBAKitCore
@@ -227,6 +228,14 @@ public class Application: CoreApplication, PushServiceDelegate {
 
     private var hyperconnectivityCancellable: AnyCancellable?
 
+    /// Long-lived instance so `restrictedState` has time to resolve from `.unknown`.
+    private let cellularData = CTCellularData()
+
+    /// Whether the user has disabled cellular data for this app in iOS Settings.
+    var isCellularDataRestricted: Bool {
+        return cellularData.restrictedState == .restricted
+    }
+
     /// This may be called repeatedly as the app goes in and out of the foreground.
     private func configureConnectivity() {
         hyperconnectivityCancellable?.cancel()
@@ -246,7 +255,7 @@ public class Application: CoreApplication, PushServiceDelegate {
                         self.reachabilityBulletin = ReachabilityBulletin()
                     }
 
-                    self.reachabilityBulletin?.showStatus(result, in: app)
+                    self.reachabilityBulletin?.showStatus(result, in: app, isCellularDataRestricted: self.isCellularDataRestricted)
                 }
             })
     }
@@ -567,12 +576,13 @@ public class Application: CoreApplication, PushServiceDelegate {
     /// Classifies and displays an error to the end user.
     @MainActor
     public override func displayError(_ error: Error) async {
-        await super.displayError(error)
+        let classified = ErrorClassifier.classify(error, regionName: currentRegionName, isCellularDataRestricted: isCellularDataRestricted)
+        Logger.error("Error: \(classified.localizedDescription)")
 
         analytics?.reportError?(error)
 
         guard let uiApp = delegate?.uiApplication else { return }
-        let bulletin = ErrorBulletin(application: self, error: error, regionName: currentRegionName)
+        let bulletin = ErrorBulletin(application: self, classifiedError: classified)
         bulletin.show(in: uiApp)
         self.errorBulletin = bulletin
     }

@@ -231,11 +231,10 @@ open class CoreApplication: NSObject,
 
     // MARK: - Error Handling
 
-    /// Classifies and displays an error to the user via `ErrorClassifier`.
+    /// Displays an error to the user. Subclasses should override to provide UI.
     @MainActor
     open func displayError(_ error: Error) async {
-        let classified = ErrorClassifier.classify(error, regionName: currentRegionName)
-        Logger.error("Error: \(classified.localizedDescription)")
+        Logger.error("Error: \(error.localizedDescription)")
     }
 
     // MARK: - Surveys

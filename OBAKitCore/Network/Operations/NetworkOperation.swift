@@ -85,11 +85,12 @@ public enum APIError: Error, LocalizedError {
             )
             return String(format: fmt, response.url?.absoluteString ?? "(nil)")
         case .cellularDataRestricted:
-            return OBALoc(
-                "api_error.cellular_data_restricted",
-                value: "OneBusAway is not currently allowed to access cellular data. To fix this, go to Settings > Cellular and enable cellular data for OneBusAway, or connect to a WiFi network.",
-                comment: "An error that tells the user that cellular data access is disabled for this app in iOS Settings."
+            let fmt = OBALoc(
+                "api_error.cellular_data_restricted_fmt",
+                value: "%@ is not currently allowed to access cellular data. To fix this, go to Settings > Cellular and enable cellular data for %@, or connect to a WiFi network.",
+                comment: "An error that tells the user that cellular data access is disabled for this app in iOS Settings. Both substituted values are the app name."
             )
+            return String(format: fmt, Bundle.main.appName, Bundle.main.appName)
         case .serverError(let regionName):
             let fmt = OBALoc(
                 "api_error.server_error_fmt",
@@ -100,10 +101,10 @@ public enum APIError: Error, LocalizedError {
         case .serverUnavailable(let regionName, _):
             let fmt = OBALoc(
                 "api_error.server_unavailable_fmt",
-                value: "The server for %@ appears to be down right now, so OneBusAway isn't able to show transit information for this region. The app should start working again once the server is back up.",
-                comment: "An error shown when the regional transit server is unavailable. The substituted value is the region name, e.g. 'Puget Sound'."
+                value: "The server for %@ appears to be down right now, so %@ isn't able to show transit information for this region. The app should start working again once the server is back up.",
+                comment: "An error shown when the regional transit server is unavailable. The first substituted value is the region name, the second is the app name."
             )
-            return String(format: fmt, regionName)
+            return String(format: fmt, regionName, Bundle.main.appName)
         }
     }
 }

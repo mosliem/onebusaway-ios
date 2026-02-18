@@ -22,7 +22,7 @@ class ErrorBulletin: NSObject {
     init(application: Application, message: String? = nil, error: Error, regionName: String? = nil, image: UIImage? = nil, title: String? = nil) {
         self.application = application
 
-        let classified = ErrorClassifier.classify(error, regionName: regionName)
+        let classified = ErrorClassifier.classify(error, regionName: regionName, isCellularDataRestricted: application.isCellularDataRestricted)
         self.error = classified
 
         let displayMessage = message ?? classified.localizedDescription
@@ -45,13 +45,36 @@ class ErrorBulletin: NSObject {
         }
     }
 
+    /// Creates a bulletin from an already-classified error, skipping re-classification.
+    init(application: Application, classifiedError: Error, image: UIImage? = nil, title: String? = nil) {
+        self.application = application
+        self.error = classifiedError
+
+        page = ThemedBulletinPage(title: title ?? Strings.error)
+        page.descriptionText = classifiedError.localizedDescription
+        page.isDismissable = false
+
+        let squircleRenderer = ImageBadgeRenderer(fillColor: .white, backgroundColor: ThemeColors.shared.errorColor)
+        page.image = squircleRenderer.drawImageOnRoundedRect(image ?? Icons.errorOutline)
+
+        bulletinManager = BLTNItemManager(rootItem: page)
+
+        super.init()
+
+        page.actionButtonTitle = Strings.dismiss
+        page.actionHandler = { [weak self] _ in
+            guard let self else { return }
+            self.bulletinManager.dismissBulletin()
+        }
+    }
+
     /// Convenience initializer for call sites that pass an explicit message.
     convenience init(application: Application, message: String, error: Error, image: UIImage? = nil, title: String? = nil) {
         self.init(
             application: application,
             message: Optional(message),
             error: error,
-            regionName: nil,
+            regionName: application.currentRegionName,
             image: image,
             title: title
         )

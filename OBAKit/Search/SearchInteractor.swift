@@ -255,13 +255,14 @@ class SearchInteractor: NSObject {
         case .error(let error):
             let classified = ErrorClassifier.classify(error, regionName: application.currentRegionName)
             var item = OBAListRowView.DefaultViewModel(title: classified.localizedDescription, accessoryType: .none)
-            // Set appropriate error icon based on error type
-            if let apiError = error as? APIError {
+            if let apiError = classified as? APIError {
                 switch apiError {
-                case .networkFailure:
+                case .networkFailure, .cellularDataRestricted:
                     item.image = UIImage(systemName: "wifi.slash")
                 case .captivePortal:
                     item.image = UIImage(systemName: "wifi.exclamationmark")
+                case .serverError, .serverUnavailable:
+                    item.image = UIImage(systemName: "server.rack")
                 default:
                     item.image = UIImage(systemName: "exclamationmark.triangle")
                 }

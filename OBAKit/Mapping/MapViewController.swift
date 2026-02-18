@@ -84,6 +84,7 @@ class MapViewController: UIViewController,
     deinit {
         application.mapRegionManager.removeDelegate(self)
         application.locationService.removeDelegate(self)
+        application.notificationCenter.removeObserver(self)
     }
 
     // MARK: - UIViewController

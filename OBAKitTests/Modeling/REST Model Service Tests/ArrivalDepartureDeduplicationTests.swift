@@ -194,11 +194,13 @@ class ArrivalDepartureDeduplicationTests: OBATestCase {
         }
     }
 
-    // MARK: - Preference Logic
+    // MARK: - Identical Duplicate Merging
 
-    /// When both a predicted and non-predicted entry exist for the same visit,
-    /// the predicted (real-time) entry should be kept.
-    func test_filteringTerminalDuplicates_prefersRealTimeOverScheduled() async throws {
+    /// When two identical entries exist for the same visit, they merge to one.
+    /// The real-time vs scheduled preference path isn't exercised here because
+    /// ArrivalDeparture properties are immutable — testing that would require
+    /// a fixture with both predicted and non-predicted entries for the same trip.
+    func test_filteringTerminalDuplicates_mergesIdenticalDuplicates() async throws {
         let arrivals = try await restService.getArrivalsAndDeparturesForStop(
             id: campusParkwayStopID, minutesBefore: 5, minutesAfter: 30
         ).entry

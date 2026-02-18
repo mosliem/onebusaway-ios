@@ -400,7 +400,7 @@ public class UserDefaultsStore: NSObject, UserDataStore, StopPreferencesStore {
         bookmark.groupID = group?.id ?? nil
 
         if let existing = findBookmark(id: bookmark.id) {
-            delete(bookmark: existing)
+            delete(bookmark: existing, reorderGroup: true)
         }
 
         var newGroupBookmarks = bookmarksInGroup(group)

@@ -436,15 +436,15 @@ public class MapRegionManager: NSObject,
         }
         mapView.removeAnnotations(allAnnotationsToRemove)
 
-        //  Add new Bookmark annotations that aren't already on the map
-        //  Check by bookmark ID (not just stopID) to correctly add replacements
+        // Add new Bookmark annotations that aren't already on the map
+        // Check by bookmark ID (not just stopID) to correctly add replacements
         let existingBookmarkIDs = Set(mapView.annotations.compactMap { ($0 as? Bookmark)?.id })
         let bookmarksToAdd = bookmarksHash.values.filter {
             !existingBookmarkIDs.contains($0.id)
         }
         mapView.addAnnotations(Array(bookmarksToAdd))
 
-        //  Re-add Stop annotations for stops that no longer have bookmarks
+        // Re-add Stop annotations for stops that no longer have bookmarks
         let stopsToAdd = stops.filter {
             !bookmarksHash.keys.contains($0.id) &&
             !existingStopIDs.contains($0.id)

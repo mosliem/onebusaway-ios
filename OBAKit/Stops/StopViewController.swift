@@ -797,15 +797,11 @@ public class StopViewController: UIViewController,
             .sorted(by: \.arrivalDepartureDate)
             .map { $0.typeErased }
 
-        // Only show the walk-time divider when sorting by time (groupRoute == nil).
-        // When sorting by route, each section is a separate route group, and repeating
-        // the same walk-time indicator in every section is redundant. It also caused
-        // duplicate item IDs, resulting in only one WalkTimeRow appearing. See #409.
+        // Only show the walk-time divider and load-more button when sorting by time.
+        // When sorting by route, each section is a separate route group where these
+        // elements are either redundant or cause duplicate item IDs. See #409.
         if groupRoute == nil {
             addWalkTimeRow(to: &items)
-        }
-
-        if groupRoute == nil {
             items.append(contentsOf: loadMoreItems)
         }
 

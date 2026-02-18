@@ -806,9 +806,12 @@ public class StopViewController: UIViewController,
         var items = arrDepItems
             .sorted(by: \.arrivalDepartureDate)
             .map { $0.typeErased }
-        addWalkTimeRow(to: &items)
 
+        // Only show the walk-time divider and load-more button when sorting by time.
+        // When sorting by route, each section is a separate route group where these
+        // elements are either redundant or cause duplicate item IDs. See #409.
         if groupRoute == nil {
+            addWalkTimeRow(to: &items)
             items.append(contentsOf: loadMoreItems)
         }
 

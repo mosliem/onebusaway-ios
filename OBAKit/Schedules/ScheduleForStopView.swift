@@ -75,7 +75,7 @@ struct ScheduleForStopView: View {
         if stopViewModel.isLoading && stopViewModel.scheduleData == nil {
             ProgressView()
         } else if let error = stopViewModel.error {
-            ErrorView(headline: StopScheduleStrings.unableToLoad, error: error) {
+            ErrorView(headline: StopScheduleStrings.unableToLoad, error: error, regionName: application.currentRegionName) {
                 Task {
                     await stopViewModel.fetchSchedule()
                 }
@@ -212,7 +212,7 @@ struct ScheduleForStopView: View {
     @ViewBuilder
     private var fullRouteScheduleSection: some View {
         if let routeVM = routeViewModel {
-            RouteScheduleContentView(viewModel: routeVM, showDatePicker: false)
+            RouteScheduleContentView(viewModel: routeVM, showDatePicker: false, regionName: application.currentRegionName)
                 .id(routeVM.routeID)
         } else {
             ProgressView()

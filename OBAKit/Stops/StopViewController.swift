@@ -564,7 +564,8 @@ public class StopViewController: UIViewController,
 
         guard stopArrivals != nil else {
             if let error = self.operationError {
-                let emptyDataItem = EmptyDataSetItem(id: "empty_data", error: error, image: nil, buttonConfig: operationRetryButton)
+                let classified = ErrorClassifier.classify(error, regionName: application.currentRegionName)
+                let emptyDataItem = EmptyDataSetItem(id: "empty_data", error: classified, image: nil, buttonConfig: operationRetryButton)
                 return [stopHeaderSection, listViewSection(for: .emptyData, title: nil, items: [emptyDataItem])].compactMap { $0 }
             } else {
                 return [stopHeaderSection].compactMap { $0 }
@@ -615,7 +616,8 @@ public class StopViewController: UIViewController,
         }
 
         if let error = self.operationError {
-            return .standard(.init(error: error))
+            let classified = ErrorClassifier.classify(error, regionName: application.currentRegionName)
+            return .standard(.init(error: classified))
         }
 
         return nil
@@ -947,7 +949,7 @@ public class StopViewController: UIViewController,
         var items: [AnyOBAListViewItem] = []
 
         if let error = operationError {
-            items.append(ErrorCaptionItem(error: error).typeErased)
+            items.append(ErrorCaptionItem(error: error, regionName: application.currentRegionName).typeErased)
         }
 
         let loadMoreButton = MessageButtonItem(asLoadMoreButtonWithID: UUID().uuidString, showActivityIndicatorOnSelect: true) { [weak self] _ in

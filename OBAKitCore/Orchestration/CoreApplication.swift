@@ -266,3 +266,17 @@ open class CoreApplication: NSObject,
         surveyService = SurveyService(apiService: surveyServiceAPI, surveyStore: userDefaultsStore)
     }
 }
+
+//MARK: - Survey URL ApplicationContext
+
+extension CoreApplication: SurveyURLApplicationContext {
+
+    public var currentRegionIdentifier: Int? {
+        currentRegion?.regionIdentifier
+    }
+
+    public var currentCoordinate: CLLocationCoordinate2D? {
+        locationService.currentLocation?.coordinate
+    }
+    
+}

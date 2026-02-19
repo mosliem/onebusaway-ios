@@ -83,6 +83,10 @@ class WalkTimeView: UIView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
     public func set(distance: CLLocationDistance, timeToWalk: TimeInterval) {
         // bail out if the distance is 40 meters or less. Just don't show anything because
         // it suggests the user is essentially at the stop and showing '100 feet arriving in 1

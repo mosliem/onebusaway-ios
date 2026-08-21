@@ -354,8 +354,8 @@ struct TripPlannerMapDisplayModelTests {
         // Top: origin.y -= 20 * 10 = 200 map points upward
         // Bottom: size.height += (20 + 40) * 10 = 600 map points downward
         // Total height expansion: 800 map points (80% of viewport)
-        let heightFraction = (paddedRect.size.height - mapRect.size.height) / mapRect.size.height
-        #expect(heightFraction > 0.7) // Asymmetry visible in height alone
+        let heightExpansion = paddedRect.size.height - mapRect.size.height
+        #expect(heightExpansion == 600) // 20 + 40 = 60, times scale 10 = 600
 
         // Top inset pulls origin up: origin.y should decrease
         #expect(paddedRect.origin.y < mapRect.origin.y)
@@ -369,11 +369,12 @@ struct TripPlannerMapDisplayModelTests {
 
         let paddedRect = paddedMapRect(mapRect, edgePadding: padding, mapSize: mapSize)
 
-        // Falls back to fraction-based expansion: 15% horizontal, 30% vertical
+        // Falls back to insetBy with fractions: insetBy applies symmetrically
+        // so -0.15 * width on each side = 0.30 total, -0.30 * height on each side = 0.60 total
         let widthFraction = (paddedRect.size.width - mapRect.size.width) / mapRect.size.width
         let heightFraction = (paddedRect.size.height - mapRect.size.height) / mapRect.size.height
-        #expect(widthFraction == 0.15)
-        #expect(heightFraction == 0.30)
+        #expect(widthFraction == 0.30)  // Symmetric expansion: 0.15 each side
+        #expect(heightFraction == 0.60) // Symmetric expansion: 0.30 each side
 
         // Does not trap on zero size
     }

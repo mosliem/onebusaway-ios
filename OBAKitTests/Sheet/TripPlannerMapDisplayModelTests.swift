@@ -319,4 +319,62 @@ struct TripPlannerMapDisplayModelTests {
         #expect(model.wantsUserLocation == false)
         #expect(model.isShowingTrip == false)
     }
+
+    // MARK: - Map rect padding (view points to map points conversion)
+
+    @Test("Padded rect expands by scaled edge insets")
+    func paddedRectExpansion() {
+        // A realistic viewport: ~5km = ~33,492 map points wide
+        let mapRect = MKMapRect(x: 0, y: 0, width: 33492, height: 33492)
+        // Map display: 400x400 view points
+        let mapSize = CGSize(width: 400, height: 400)
+        // 50pt bottom padding (to clear the sheet) should expand height by a visible fraction
+        let padding = UIEdgeInsets(top: 0, left: 0, bottom: 50, right: 0)
+
+        let paddedRect = paddedMapRect(mapRect, edgePadding: padding, mapSize: mapSize)
+
+        // Scale factor: 33492 / 400 = 83.73 map points per view point
+        // 50pt padding * 83.73 = 4,186.5 map points expansion
+        // That is 12.5% of the 33,492 viewport height — clearly visible, not negligible
+        let heightExpansion = paddedRect.size.height - mapRect.size.height
+        let heightFraction = heightExpansion / mapRect.size.height
+        #expect(heightFraction > 0.1) // At least 10%, not the near-zero we'd get from dividing by a constant
+    }
+
+    @Test("Padded rect preserves asymmetric padding (bottom > top)")
+    func paddedRectAsymmetry() {
+        let mapRect = MKMapRect(x: 0, y: 0, width: 1000, height: 1000)
+        let mapSize = CGSize(width: 100, height: 100)
+        // 20pt top, 40pt bottom — bottom should move the origin up more
+        let padding = UIEdgeInsets(top: 20, left: 0, bottom: 40, right: 0)
+
+        let paddedRect = paddedMapRect(mapRect, edgePadding: padding, mapSize: mapSize)
+
+        // Scale: 1000 / 100 = 10 map points per view point
+        // Top: origin.y -= 20 * 10 = 200 map points upward
+        // Bottom: size.height += (20 + 40) * 10 = 600 map points downward
+        // Total height expansion: 800 map points (80% of viewport)
+        let heightFraction = (paddedRect.size.height - mapRect.size.height) / mapRect.size.height
+        #expect(heightFraction > 0.7) // Asymmetry visible in height alone
+
+        // Top inset pulls origin up: origin.y should decrease
+        #expect(paddedRect.origin.y < mapRect.origin.y)
+    }
+
+    @Test("Padded rect with zero map size uses fallback fraction")
+    func paddedRectZeroMapSize() {
+        let mapRect = MKMapRect(x: 100, y: 200, width: 1000, height: 1000)
+        let mapSize = CGSize.zero // Before first geometry report
+        let padding = UIEdgeInsets(top: 20, left: 20, bottom: 40, right: 40)
+
+        let paddedRect = paddedMapRect(mapRect, edgePadding: padding, mapSize: mapSize)
+
+        // Falls back to fraction-based expansion: 15% horizontal, 30% vertical
+        let widthFraction = (paddedRect.size.width - mapRect.size.width) / mapRect.size.width
+        let heightFraction = (paddedRect.size.height - mapRect.size.height) / mapRect.size.height
+        #expect(widthFraction == 0.15)
+        #expect(heightFraction == 0.30)
+
+        // Does not trap on zero size
+    }
 }

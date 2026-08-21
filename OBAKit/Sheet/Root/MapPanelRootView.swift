@@ -12,6 +12,47 @@ import SwiftUI
 import OBAKitCore
 import UIKit
 
+// MARK: - Map rect padding
+
+/// Applies `UIEdgeInsets` (view points) to an `MKMapRect` (map points) by
+/// converting through the map's current scale factor. UIEdgeInsets and MKMapRect
+/// use different units; the scale factor is derived from the map's rendered size.
+///
+/// When `mapSize` is zero (before first geometry report), falls back to expanding
+/// the rect by a fraction of its own dimensions — this is unit-safe because both
+/// sides are map-rect units — and avoids division by zero.
+func paddedMapRect(
+    _ rect: MKMapRect,
+    edgePadding: UIEdgeInsets,
+    mapSize: CGSize
+) -> MKMapRect {
+    // When the map has reported its size, calculate scale factors to convert from
+    // view points (UIEdgeInsets) to map points (MKMapRect). Scale factor =
+    // map-point dimension / view-point dimension.
+    guard mapSize.width > 0, mapSize.height > 0 else {
+        // Before first geometry report: fall back to size-proportional expansion
+        // in the shape of `MapSearchDisplayModel.show(stopsForRoute:)`.
+        return rect.insetBy(
+            dx: -rect.size.width * 0.15,
+            dy: -rect.size.height * 0.30
+        )
+    }
+
+    let scaleX = rect.size.width / mapSize.width
+    let scaleY = rect.size.height / mapSize.height
+
+    // Build the padded rect by adjusting origin and size. Unlike `insetBy`, this
+    // preserves asymmetric padding: OTPKit pads the bottom harder to clear the
+    // sheet, and that matters most.
+    var paddedRect = rect
+    paddedRect.origin.x -= edgePadding.left * scaleX
+    paddedRect.origin.y -= edgePadding.top * scaleY
+    paddedRect.size.width += (edgePadding.left + edgePadding.right) * scaleX
+    paddedRect.size.height += (edgePadding.top + edgePadding.bottom) * scaleY
+
+    return paddedRect
+}
+
 // MARK: - MapPanelRootView
 
 /// A pure-SwiftUI alternative to `MapViewController`: a full-screen SwiftUI
@@ -485,10 +526,11 @@ extension MapPanelRootView {
 
     /// Applies the trip planner's requested camera movement to the map.
     ///
-    /// For rect targets with edge padding: SwiftUI's MapCameraPosition doesn't expose an
-    /// insets parameter, so we approximate point-based insets by expanding the rect's frame
-    /// proportionally, following the precedent of `MapSearchDisplayModel.show(stopsForRoute:)`
-    /// which uses similar inset math to keep content off the screen edges and clear of the sheet.
+    /// For rect targets with edge padding: converts view-point insets to map-point
+    /// adjustments using the current map scale factor, because SwiftUI's
+    /// MapCameraPosition takes no insets parameter. Preserves asymmetric padding
+    /// (bottom padding is larger to clear the sheet). Falls back to fraction-based
+    /// expansion before the map's size is known.
     private func applyTripPlannerCameraTarget(_ target: TripPlannerMapDisplayModel.CameraTarget) {
         switch target {
         case .region(let region, let animated):
@@ -498,16 +540,11 @@ extension MapPanelRootView {
                 cameraPosition = .region(region)
             }
         case .rect(let rect, let edgePadding, let animated):
-            // Convert point-based UIEdgeInsets to map-rect deltas. Expand the rect outward
-            // (negative deltas) so content stays away from edges and clear of the sheet.
-            let insetRect = rect.insetBy(
-                dx: -(edgePadding.left + edgePadding.right) / 4,
-                dy: -(edgePadding.top + edgePadding.bottom) / 4
-            )
+            let paddedRect = paddedMapRect(rect, edgePadding: edgePadding, mapSize: mapSize)
             if animated {
-                withAnimation { cameraPosition = .rect(insetRect) }
+                withAnimation { cameraPosition = .rect(paddedRect) }
             } else {
-                cameraPosition = .rect(insetRect)
+                cameraPosition = .rect(paddedRect)
             }
         case .userLocation(let animated):
             if animated {

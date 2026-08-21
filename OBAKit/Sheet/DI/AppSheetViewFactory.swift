@@ -38,6 +38,7 @@ final class AppSheetViewFactory {
     let coordinator: SheetCoordinator<AppSheetRoute>
     let searchDisplayModel: MapSearchDisplayModel
     let stopsObserver: MapStopsObserver
+    let tripPlannerMapDisplayModel: TripPlannerMapDisplayModel
 
     /// Nothing here is defaulted, on purpose, and for two separate reasons.
     ///
@@ -46,12 +47,13 @@ final class AppSheetViewFactory {
     /// it, so a call site that omitted it would build a factory whose sheet
     /// renders correctly and then silently ignores every button on it.
     ///
-    /// `coordinator`, `searchDisplayModel`, and `stopsObserver`: they must be the
-    /// same instances the hosting `MapPanelRootView` observes. A factory built with
-    /// its own private copies would push routes onto a coordinator nobody is
-    /// watching, draw into a display model nobody renders, or observe a different
-    /// stop set than the map is showing — silently, with the search sheet simply
-    /// appearing to do nothing.
+    /// `coordinator`, `searchDisplayModel`, `stopsObserver`, and
+    /// `tripPlannerMapDisplayModel`: they must be the same instances the hosting
+    /// `MapPanelRootView` observes. A factory built with its own private copies
+    /// would push routes onto a coordinator nobody is watching, draw into a
+    /// display model nobody renders, observe a different stop set than the map is
+    /// showing, or push trip state into a model nobody renders — silently, with
+    /// the sheets simply appearing to do nothing.
     init(
         application: Application,
         onPresentTrip: @escaping (ArrivalDeparture) -> Void,
@@ -59,7 +61,8 @@ final class AppSheetViewFactory {
         presentingController: @escaping () -> UIViewController?,
         coordinator: SheetCoordinator<AppSheetRoute>,
         searchDisplayModel: MapSearchDisplayModel,
-        stopsObserver: MapStopsObserver
+        stopsObserver: MapStopsObserver,
+        tripPlannerMapDisplayModel: TripPlannerMapDisplayModel
     ) {
         self.application = application
         self.onPresentTrip = onPresentTrip
@@ -68,6 +71,7 @@ final class AppSheetViewFactory {
         self.coordinator = coordinator
         self.searchDisplayModel = searchDisplayModel
         self.stopsObserver = stopsObserver
+        self.tripPlannerMapDisplayModel = tripPlannerMapDisplayModel
     }
 
     /// Built once and shared: the search sheet and the results sheet must route a

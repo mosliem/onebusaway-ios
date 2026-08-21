@@ -30,7 +30,10 @@ public final class MapPanelRootController: UIViewController {
         // Built here, not inside `MapPanelRootView`, because the factory is
         // constructed first and the home sheet's nearby section must observe
         // the same instance the map renders from. Same reasoning as
-        // `displayModel` above.
+        // `displayModel` below.
+        let tripPlannerMapDisplayModel = TripPlannerMapDisplayModel()
+        // Built here for the same reason: the factory must have the instance so the
+        // trip planner sheet can push the same model instance the map renders from.
         let stopsObserver = MapStopsObserver(application: application)
         let factory = AppSheetViewFactory(
             application: application,
@@ -39,14 +42,16 @@ public final class MapPanelRootController: UIViewController {
             presentingController: { [weak bridge] in bridge?.topmostController() },
             coordinator: coordinator,
             searchDisplayModel: displayModel,
-            stopsObserver: stopsObserver
+            stopsObserver: stopsObserver,
+            tripPlannerMapDisplayModel: tripPlannerMapDisplayModel
         )
         let rootView = MapPanelRootView(
             application: application,
             factory: factory,
             coordinator: coordinator,
             searchDisplayModel: displayModel,
-            stopsObserver: stopsObserver
+            stopsObserver: stopsObserver,
+            tripPlannerMapDisplayModel: tripPlannerMapDisplayModel
         )
         self.host = UIHostingController(rootView: rootView)
         self.bridge = bridge

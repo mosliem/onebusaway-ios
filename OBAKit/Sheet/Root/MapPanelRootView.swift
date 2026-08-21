@@ -23,6 +23,7 @@ struct MapPanelRootView: View {
     @ObservedObject private var searchDisplay: MapSearchDisplayModel
     @StateObject private var mapViewModel: MapViewModel
     @ObservedObject private var stopsObserver: MapStopsObserver
+    @ObservedObject private var tripPlannerDisplay: TripPlannerMapDisplayModel
 
     /// Presentation state only. The popup reads its data from
     /// `mapViewModel.weatherDisplay` so a refresh that finishes while the card
@@ -91,11 +92,13 @@ struct MapPanelRootView: View {
         factory: AppSheetViewFactory,
         coordinator: SheetCoordinator<AppSheetRoute>,
         searchDisplayModel: MapSearchDisplayModel,
-        stopsObserver: MapStopsObserver
+        stopsObserver: MapStopsObserver,
+        tripPlannerMapDisplayModel: TripPlannerMapDisplayModel
     ) {
         _coordinator = StateObject(wrappedValue: coordinator)
         _searchDisplay = ObservedObject(wrappedValue: searchDisplayModel)
         _stopsObserver = ObservedObject(wrappedValue: stopsObserver)
+        _tripPlannerDisplay = ObservedObject(wrappedValue: tripPlannerMapDisplayModel)
         let initialMapType = MapBaseType(application.mapRegionManager.userSelectedMapType)
         _mapViewModel = StateObject(wrappedValue: MapViewModel(application: application, initialMapType: initialMapType))
         self.application = application
@@ -132,8 +135,9 @@ struct MapPanelRootView: View {
                 )
             }
             // Regular stops show only zoomed in; `renderStops` already excludes
-            // bookmarked stops and precomputes labels.
-            if isZoomedInForStops, !searchDisplay.suppressesAmbientStops {
+            // bookmarked stops and precomputes labels. Suppress them if a search
+            // result or trip is drawn, as those take over the map.
+            if isZoomedInForStops, !searchDisplay.suppressesAmbientStops, !tripPlannerDisplay.isShowingTrip {
                 ForEach(stopsObserver.renderStops) { renderStop in
                     stopAnnotation(
                         for: renderStop.stop,
@@ -150,11 +154,15 @@ struct MapPanelRootView: View {
                     traits: UITraitCollection(userInterfaceStyle: colorScheme == .dark ? .dark : .light)
                 )
             }
+            tripPlannerMapContent(for: tripPlannerDisplay)
         }
         .onMapCameraChange(frequency: .onEnd) { context in
             viewportRecorder.record(context.rect)
             visibleRegion = context.region
             visibleMapRectHeight = context.rect.height
+            // Feed the visible region to both the search and trip planner display
+            // models so they can frame results and answer region queries.
+            tripPlannerDisplay.updateVisibleRegion(context.region)
             // Keep the "Zoom in for stops" pill in sync with the stop-loading
             // threshold by updating it before the stop-loading early return, so it
             // also works when the map is zoomed out.
@@ -175,7 +183,7 @@ struct MapPanelRootView: View {
             }
             recomputeStopLabels()
             stopsObserver.updateViewport(context.region)
-            guard !searchDisplay.suppressesAmbientStops else { return }
+            guard !searchDisplay.suppressesAmbientStops, !tripPlannerDisplay.isShowingTrip else { return }
             application.mapRegionManager.scheduleStopsRequest(in: context.region)
         }
         // The map-type toggle changes the label gate (labels only show on the
@@ -191,14 +199,28 @@ struct MapPanelRootView: View {
             coordinator.push(.stopDetails(stopID: id))
             selectedStopID = nil
         }
-        // A searched result stays drawn for exactly as long as the sheet that owns it
-        // is on the stack. Watching the stack — rather than clearing from the owning
-        // sheet's `onDisappear` — keeps the drawing alive across the content
-        // teardowns the sheet system performs without dismissing anything, and still
-        // clears on a real exit, including the drag-down the OS routes through
-        // `truncateStacked`.
+        // A searched result and a trip plan stay drawn for exactly as long as the
+        // sheet that owns them is on the stack. Watching the stack — rather than
+        // clearing from the owning sheet's `onDisappear` — keeps the drawing alive
+        // across the content teardowns the sheet system performs without dismissing
+        // anything, and still clears on a real exit, including the drag-down the OS
+        // routes through `truncateStacked`.
         .onChange(of: coordinator.stackedRoutes) { _, _ in
             searchDisplay.clearIfOwnerAbsent(from: coordinator.routeStack + coordinator.stackedRoutes)
+            // Clear the trip planner when `.tripPlanner` is no longer on the stack.
+            // Unlike searchDisplay which uses `.clearIfOwnerAbsent`, the trip planner
+            // has no owner concept — it has a plain `clear()`. The check is simple: if
+            // the trip planner route isn't on the stack, clear the model.
+            let hasActiveTripPlanner = (coordinator.routeStack + coordinator.stackedRoutes)
+                .contains { route in
+                    if case .tripPlanner = route {
+                        return true
+                    }
+                    return false
+                }
+            if !hasActiveTripPlanner {
+                tripPlannerDisplay.clear()
+            }
         }
         .onChange(of: searchDisplay.cameraTarget) { _, target in
             guard let target else { return }
@@ -218,6 +240,11 @@ struct MapPanelRootView: View {
                 withAnimation { cameraPosition = .rect(rect) }
             }
             searchDisplay.consumeCameraTarget()
+        }
+        .onChange(of: tripPlannerDisplay.cameraTarget) { _, target in
+            guard let target else { return }
+            applyTripPlannerCameraTarget(target)
+            tripPlannerDisplay.consumeCameraTarget()
         }
         .mapStyle(mapViewModel.mapType == .standard ? .standard(emphasis: .muted) : .hybrid)
         .safeAreaPadding(.bottom, 180)
@@ -455,6 +482,34 @@ extension MapPanelRootView {
 extension MapPanelRootView {
 
     // MARK: - Actions
+
+    /// Applies the trip planner's requested camera movement to the map.
+    ///
+    /// Note: SwiftUI's MapCameraPosition API (iOS 18+) doesn't expose an insets
+    /// parameter; the rect is applied as-is. OTPKit's `edgePadding` is recorded
+    /// in the model for future use but not applied on the current platform.
+    private func applyTripPlannerCameraTarget(_ target: TripPlannerMapDisplayModel.CameraTarget) {
+        switch target {
+        case .region(let region, let animated):
+            if animated {
+                withAnimation { cameraPosition = .region(region) }
+            } else {
+                cameraPosition = .region(region)
+            }
+        case .rect(let rect, _, let animated):
+            if animated {
+                withAnimation { cameraPosition = .rect(rect) }
+            } else {
+                cameraPosition = .rect(rect)
+            }
+        case .userLocation(let animated):
+            if animated {
+                withAnimation { cameraPosition = .userLocation(fallback: .automatic) }
+            } else {
+                cameraPosition = .userLocation(fallback: .automatic)
+            }
+        }
+    }
 
     /// Performs the once-per-launch recenter on the user's first location fix,
     /// waiting out the `mapSize == .zero` window: called both when the fix

@@ -35,14 +35,15 @@ final class AppSheetViewFactoryTests: OBATestCase {
         queue.cancelAllOperations()
     }
 
-    /// The coordinator, display model, and stops observer are required dependencies, so every test
-    /// builds the factory the same way the app does.
+    /// The coordinator, display model, stops observer, and trip planner display model are required dependencies,
+    /// so every test builds the factory the same way the app does.
     @MainActor
     private func makeFactory(
         application: Application,
         coordinator: SheetCoordinator<AppSheetRoute> = SheetCoordinator(root: .home),
         displayModel: MapSearchDisplayModel = MapSearchDisplayModel(),
-        stopsObserver: MapStopsObserver? = nil
+        stopsObserver: MapStopsObserver? = nil,
+        tripPlannerMapDisplayModel: TripPlannerMapDisplayModel? = nil
     ) -> AppSheetViewFactory {
         AppSheetViewFactory(
             application: application,
@@ -51,7 +52,8 @@ final class AppSheetViewFactoryTests: OBATestCase {
             presentingController: { nil },
             coordinator: coordinator,
             searchDisplayModel: displayModel,
-            stopsObserver: stopsObserver ?? MapStopsObserver(application: application)
+            stopsObserver: stopsObserver ?? MapStopsObserver(application: application),
+            tripPlannerMapDisplayModel: tripPlannerMapDisplayModel ?? TripPlannerMapDisplayModel()
         )
     }
 

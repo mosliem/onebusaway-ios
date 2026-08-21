@@ -40,7 +40,8 @@ final class MapItemSheetViewTests: OBATestCase {
             presentingController: { nil },
             coordinator: SheetCoordinator(root: .home),
             searchDisplayModel: MapSearchDisplayModel(),
-            stopsObserver: MapStopsObserver(application: application)
+            stopsObserver: MapStopsObserver(application: application),
+            tripPlannerMapDisplayModel: TripPlannerMapDisplayModel()
         )
     }
 

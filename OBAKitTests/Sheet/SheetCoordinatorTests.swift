@@ -54,12 +54,12 @@ final class SheetCoordinatorTests {
         let coordinator = SheetCoordinator<AppSheetRoute>(root: .home)
         coordinator.push(.search)
 
-        coordinator.push(.tripPlanner)
+        coordinator.push(.tripPlanner(TripPlannerRequest()))
 
         #expect(coordinator.routeStack.count == 2)
         #expect(coordinator.currentRoute == .search)
-        #expect(coordinator.stackedRoutes == [.tripPlanner])
-        #expect(coordinator.stackedDetents == [AppSheetRoute.tripPlanner.detentConfiguration.initialDetent])
+        #expect(coordinator.stackedRoutes == [.tripPlanner(TripPlannerRequest())])
+        #expect(coordinator.stackedDetents == [AppSheetRoute.tripPlanner(TripPlannerRequest()).detentConfiguration.initialDetent])
     }
 
     @Test func `Push stacking route stacks multiple sheets`() {
@@ -81,12 +81,12 @@ final class SheetCoordinatorTests {
     @Test func `Pop with stacked presented removes top stacked and preserves content stack`() {
         let coordinator = SheetCoordinator<AppSheetRoute>(root: .home)
         coordinator.push(.search)
-        coordinator.push(.tripPlanner)
+        coordinator.push(.tripPlanner(TripPlannerRequest()))
         coordinator.push(.stopDetails(stopID: "1"))
 
         coordinator.pop()
 
-        #expect(coordinator.stackedRoutes == [.tripPlanner])
+        #expect(coordinator.stackedRoutes == [.tripPlanner(TripPlannerRequest())])
         #expect(coordinator.stackedDetents.count == 1)
         #expect(coordinator.routeStack.count == 2)
         #expect(coordinator.currentRoute == .search)
@@ -94,7 +94,7 @@ final class SheetCoordinatorTests {
 
     @Test func `Pop last stacked route empties stacked layer`() {
         let coordinator = SheetCoordinator<AppSheetRoute>(root: .home)
-        coordinator.push(.tripPlanner)
+        coordinator.push(.tripPlanner(TripPlannerRequest()))
 
         coordinator.pop()
 
@@ -142,18 +142,18 @@ final class SheetCoordinatorTests {
 
     @Test func `Truncate stacked ignores out of range depth`() {
         let coordinator = SheetCoordinator<AppSheetRoute>(root: .home)
-        coordinator.push(.tripPlanner)
+        coordinator.push(.tripPlanner(TripPlannerRequest()))
 
         coordinator.truncateStacked(toDepth: 5)
 
-        #expect(coordinator.stackedRoutes == [.tripPlanner])
+        #expect(coordinator.stackedRoutes == [.tripPlanner(TripPlannerRequest())])
     }
 
     // MARK: - setStackedDetent
 
     @Test func `Set stacked detent persists at given depth`() {
         let coordinator = SheetCoordinator<AppSheetRoute>(root: .home)
-        coordinator.push(.tripPlanner)
+        coordinator.push(.tripPlanner(TripPlannerRequest()))
         coordinator.push(.stopDetails(stopID: "1"))
 
         coordinator.setStackedDetent(.medium, at: 0)
@@ -164,7 +164,7 @@ final class SheetCoordinatorTests {
 
     @Test func `Set stacked detent ignores out of range depth`() {
         let coordinator = SheetCoordinator<AppSheetRoute>(root: .home)
-        coordinator.push(.tripPlanner)
+        coordinator.push(.tripPlanner(TripPlannerRequest()))
         let original = coordinator.stackedDetents
 
         coordinator.setStackedDetent(.medium, at: 5)
@@ -176,10 +176,10 @@ final class SheetCoordinatorTests {
 
     @Test func `Stacked route at depth returns route when in range`() {
         let coordinator = SheetCoordinator<AppSheetRoute>(root: .home)
-        coordinator.push(.tripPlanner)
+        coordinator.push(.tripPlanner(TripPlannerRequest()))
         coordinator.push(.stopDetails(stopID: "1"))
 
-        #expect(coordinator.stackedRoute(at: 0) == .tripPlanner)
+        #expect(coordinator.stackedRoute(at: 0) == .tripPlanner(TripPlannerRequest()))
         #expect(coordinator.stackedRoute(at: 1) == .stopDetails(stopID: "1"))
     }
 
@@ -187,13 +187,13 @@ final class SheetCoordinatorTests {
         let coordinator = SheetCoordinator<AppSheetRoute>(root: .home)
         #expect(coordinator.stackedRoute(at: 0) == nil)
 
-        coordinator.push(.tripPlanner)
+        coordinator.push(.tripPlanner(TripPlannerRequest()))
         #expect(coordinator.stackedRoute(at: 1) == nil)
     }
 
     @Test func `Stacked detent at depth returns stored detent`() {
         let coordinator = SheetCoordinator<AppSheetRoute>(root: .home)
-        coordinator.push(.tripPlanner)
+        coordinator.push(.tripPlanner(TripPlannerRequest()))
         coordinator.setStackedDetent(.medium, at: 0)
 
         #expect(coordinator.stackedDetent(at: 0, fallback: .large) == .medium)
@@ -210,7 +210,7 @@ final class SheetCoordinatorTests {
         let coordinator = SheetCoordinator<AppSheetRoute>(root: .home)
         #expect(coordinator.canPop == false)
 
-        coordinator.push(.tripPlanner)
+        coordinator.push(.tripPlanner(TripPlannerRequest()))
         #expect(coordinator.canPop == true)
     }
 
@@ -237,7 +237,7 @@ final class SheetCoordinatorTests {
         coordinator.push(.search)
         #expect(coordinator.currentDetents == AppSheetRoute.search.detentConfiguration.detents)
 
-        coordinator.push(.tripPlanner) // stacked — must not alter currentDetents
+        coordinator.push(.tripPlanner(TripPlannerRequest())) // stacked — must not alter currentDetents
         #expect(coordinator.currentDetents == AppSheetRoute.search.detentConfiguration.detents)
     }
 

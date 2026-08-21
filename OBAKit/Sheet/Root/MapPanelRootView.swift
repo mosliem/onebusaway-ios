@@ -485,9 +485,10 @@ extension MapPanelRootView {
 
     /// Applies the trip planner's requested camera movement to the map.
     ///
-    /// Note: SwiftUI's MapCameraPosition API (iOS 18+) doesn't expose an insets
-    /// parameter; the rect is applied as-is. OTPKit's `edgePadding` is recorded
-    /// in the model for future use but not applied on the current platform.
+    /// For rect targets with edge padding: SwiftUI's MapCameraPosition doesn't expose an
+    /// insets parameter, so we approximate point-based insets by expanding the rect's frame
+    /// proportionally, following the precedent of `MapSearchDisplayModel.show(stopsForRoute:)`
+    /// which uses similar inset math to keep content off the screen edges and clear of the sheet.
     private func applyTripPlannerCameraTarget(_ target: TripPlannerMapDisplayModel.CameraTarget) {
         switch target {
         case .region(let region, let animated):
@@ -496,11 +497,17 @@ extension MapPanelRootView {
             } else {
                 cameraPosition = .region(region)
             }
-        case .rect(let rect, _, let animated):
+        case .rect(let rect, let edgePadding, let animated):
+            // Convert point-based UIEdgeInsets to map-rect deltas. Expand the rect outward
+            // (negative deltas) so content stays away from edges and clear of the sheet.
+            let insetRect = rect.insetBy(
+                dx: -(edgePadding.left + edgePadding.right) / 4,
+                dy: -(edgePadding.top + edgePadding.bottom) / 4
+            )
             if animated {
-                withAnimation { cameraPosition = .rect(rect) }
+                withAnimation { cameraPosition = .rect(insetRect) }
             } else {
-                cameraPosition = .rect(rect)
+                cameraPosition = .rect(insetRect)
             }
         case .userLocation(let animated):
             if animated {

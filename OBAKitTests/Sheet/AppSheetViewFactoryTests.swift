@@ -282,4 +282,33 @@ final class AppSheetViewFactoryTests: OBATestCase {
 
         #expect(view.application === application)
     }
+
+    /// The trip planner sheet builds successfully when the region supports OTP
+    /// and trip planning is enabled. The view is no longer routed to `unimplementedView`.
+    @Test @MainActor
+    func `Trip planner view builds with a valid request`() throws {
+        let dataLoader = MockDataLoader(testName: name)
+        let application = buildApplication(queue: queue, dataLoader: dataLoader)
+        let request = TripPlannerRequest()
+
+        let view = makeFactory(application: application).tripPlannerView(request: request)
+
+        #expect(view.application === application)
+        #expect(view.request == request)
+    }
+
+    /// The trip planner display model is shared with the map, so the sheet must
+    /// receive the same instance the factory was constructed with — not a private copy.
+    @Test @MainActor
+    func `Trip planner view forwards the shared trip planner display model`() {
+        let dataLoader = MockDataLoader(testName: name)
+        let application = buildApplication(queue: queue, dataLoader: dataLoader)
+        let displayModel = TripPlannerMapDisplayModel()
+        let request = TripPlannerRequest()
+
+        let factory = makeFactory(application: application, tripPlannerMapDisplayModel: displayModel)
+        let view = factory.tripPlannerView(request: request)
+
+        #expect(view.tripPlannerMapDisplayModel === displayModel)
+    }
 }

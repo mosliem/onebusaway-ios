@@ -110,10 +110,8 @@ final class AppSheetViewFactory {
         // Wiring a push for one of these routes before its view exists will
         // trip the debug assertion in `unimplementedView(for:)` — register the
         // view here before reaching for `SheetCoordinator.push(...)`.
-        case .tripPlanner(let _request):
-            // TODO: Task 2 will build the actual trip planner view.
-            // For now, route to the placeholder while binding the request payload.
-            unimplementedView(for: route)
+        case .tripPlanner(let request):
+            tripPlannerView(request: request)
 
         case .tripDetails, .transitAlert, .settings:
             unimplementedView(for: route)
@@ -246,6 +244,14 @@ final class AppSheetViewFactory {
                 router: self.searchResultRouter
             ),
             placeholder: SearchPlaceholder.text(for: self.application)
+        )
+    }
+
+    func tripPlannerView(request: TripPlannerRequest) -> TripPlannerSheetView {
+        TripPlannerSheetView(
+            application: application,
+            request: request,
+            tripPlannerMapDisplayModel: tripPlannerMapDisplayModel
         )
     }
 

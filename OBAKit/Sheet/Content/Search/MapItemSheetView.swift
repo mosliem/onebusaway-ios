@@ -55,6 +55,10 @@ struct MapItemSheetView: View {
         // drag frame.
         .onAppear {
             guard viewModel == nil else { return }
+            let planTripHandler: (() -> Void)? = application.regionsService.currentRegion?.supportsOTP == true ? {
+                coordinator.push(.tripPlanner(TripPlannerRequest(destination: mapItem)))
+            } : nil
+
             viewModel = MapItemViewModel(
                 mapItem: mapItem,
                 application: application,
@@ -64,10 +68,9 @@ struct MapItemSheetView: View {
                     dismiss: { dismiss() }
                 ),
                 removePinHandler: nil,
-                // No trip-planner route on this surface yet. `nil` hides the button
-                // rather than rendering one that does nothing; wire it up when the
-                // trip planner lands here.
-                planTripHandler: nil
+                // When the current region supports OTP, push the trip planner with this
+                // map item as the destination. Otherwise, `nil` hides the button entirely.
+                planTripHandler: planTripHandler
             )
         }
         .sheet(item: $website) { link in

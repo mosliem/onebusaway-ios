@@ -35,8 +35,17 @@ public final class MapPanelRootController: UIViewController {
         // Built here for the same reason: the factory must have the instance so the
         // trip planner sheet can push the same model instance the map renders from.
         let stopsObserver = MapStopsObserver(application: application)
+        // Same reasoning for the map models: `AppSheetViewFactory` needs the
+        // very instances the map renders from — `MapSheetModel` reads and
+        // writes the map type through `MapViewModel`, so a second copy would
+        // let the Map settings sheet and the map disagree.
+        let initialMapType = MapBaseType(application.mapRegionManager.userSelectedMapType)
+        let mapViewModel = MapViewModel(application: application, initialMapType: initialMapType)
+        let layersModel = MapPanelLayersModel(application: application)
         let factory = AppSheetViewFactory(
             application: application,
+            mapViewModel: mapViewModel,
+            layersModel: layersModel,
             onPresentTrip: { [weak bridge] arrival in bridge?.present(arrival) },
             onPresentVehicleTrip: { [weak bridge] vehicleStatus in bridge?.present(vehicleStatus: vehicleStatus) },
             presentingController: { [weak bridge] in bridge?.topmostController() },
@@ -47,6 +56,8 @@ public final class MapPanelRootController: UIViewController {
         )
         let rootView = MapPanelRootView(
             application: application,
+            mapViewModel: mapViewModel,
+            layersModel: layersModel,
             factory: factory,
             coordinator: coordinator,
             searchDisplayModel: displayModel,

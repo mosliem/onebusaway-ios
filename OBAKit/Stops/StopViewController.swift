@@ -96,6 +96,13 @@ public class StopViewController: UIViewController,
         set { viewModel.transferContext = newValue }
     }
 
+    /// Honors Settings > Arrival & Departure Display > transfer banner. When the rider
+    /// turns that off, the stop page ignores the trip-sourced transfer context
+    /// so times are wall-clock and the full list is shown (#1277).
+    private var displayedTransferContext: TransferContext? {
+        application.userDataStore.displayedTransferContext(transferContext)
+    }
+
     var stop: Stop? { viewModel.stop }
     var stopArrivals: StopArrivals? { viewModel.stopArrivals }
     var stopPreferences: StopPreferences { viewModel.stopPreferences }
@@ -104,6 +111,9 @@ public class StopViewController: UIViewController,
     var minutesAfter: UInt { viewModel.minutesAfter }
     var operationError: Error? { viewModel.operationError }
     var isBrokenBookmark: Bool { viewModel.isBrokenBookmark }
+
+    /// The server has no stop at this ID, with or without a bookmark behind it.
+    var stopIsMissing: Bool { viewModel.stopIsMissing }
 
     /// Controls whether departures before the transfer arrival time are visible (local UI state).
     private var showAllTransferDepartures = false
@@ -218,15 +228,7 @@ public class StopViewController: UIViewController,
         super.viewDidAppear(animated)
 
         if let schedulesButton {
-            scheduleTipPresenter.showIfNeeded(sourceItem: schedulesButton) { [weak self] vc in
-                guard let self else { return }
-                present(vc, animated: animated)
-            } presentedController: { [weak self] in
-                guard let self else { return nil }
-                return self.presentedViewController
-            } dismiss: { vc in
-                vc.dismiss(animated: animated)
-            }
+            scheduleTipPresenter.showIfNeeded(in: self, sourceItem: schedulesButton, animated: animated)
         }
     }
 
@@ -234,6 +236,7 @@ public class StopViewController: UIViewController,
         super.viewWillDisappear(animated)
         enableIdleTimer()
         viewModel.deactivate()
+        scheduleTipPresenter.stop()
     }
 
     // MARK: - Tips
@@ -415,7 +418,25 @@ public class StopViewController: UIViewController,
             walkingDirectionsElement = UIMenu(title: walkingDirectionsTitle, image: walkingDirectionsImage, children: walkingDirectionActions)
         }
 
-        return UIMenu(title: "Location", options: .displayInline, children: [nearbyAction, walkingDirectionsElement])
+        var locationChildren: [UIMenuElement] = [nearbyAction, walkingDirectionsElement]
+
+        if StopTripPlannerAction.canPresent(application: application), let stop {
+            let directionsToHere = UIAction(
+                title: StopTripPlannerAction.directionsToHereTitle,
+                image: UIImage(systemName: "arrow.triangle.turn.up.right.diamond")
+            ) { [unowned self] _ in
+                StopTripPlannerAction.present(.directionsToStop, stop: stop, application: self.application)
+            }
+            let directionsFromHere = UIAction(
+                title: StopTripPlannerAction.directionsFromHereTitle,
+                image: UIImage(systemName: "arrow.triangle.turn.up.right.diamond.fill")
+            ) { [unowned self] _ in
+                StopTripPlannerAction.present(.directionsFromStop, stop: stop, application: self.application)
+            }
+            locationChildren.append(contentsOf: [directionsToHere, directionsFromHere])
+        }
+
+        return UIMenu(title: "Location", options: .displayInline, children: locationChildren)
     }
 
     fileprivate func sortMenu() -> UIMenu {
@@ -485,7 +506,10 @@ public class StopViewController: UIViewController,
 
     // MARK: - OBAListView
     public func items(for listView: OBAListView) -> [OBAListViewSection] {
-        if isBrokenBookmark { return [] }
+        // Both are terminal states for a stop the server doesn't have, so there is
+        // nothing to list. Returning no sections is what hands the screen to
+        // `emptyData(for:)`, which explains which of the two it is.
+        if isBrokenBookmark || stopIsMissing { return [] }
 
         guard stopArrivals != nil else {
             if let error = self.operationError {
@@ -542,6 +566,22 @@ public class StopViewController: UIViewController,
 
             let bookmarkBrokenImage = UIImage(systemName: "bookmark.slash.fill")?.withTintColor(.systemRed)    // iOS 14+ only.
             return .standard(.init(alignment: .center, title: "Broken Bookmark", body: message, image: bookmarkBrokenImage, buttonConfig: .none))
+        }
+
+        // No bookmark to repair, but the server still has no stop at this ID. Say so
+        // rather than leaving a bare header and no explanation (#1336).
+        if stopIsMissing {
+            let title = OBALoc(
+                "stop_controller.stop_not_found_title",
+                value: "Stop Not Found",
+                comment: "Title of the message shown when the server has no stop at the requested ID."
+            )
+            let message = OBALoc(
+                "stop_page.empty.stop_not_found",
+                value: "This stop isn't in the transit agency's data anymore. It may have been moved or removed.",
+                comment: "Empty state shown when the server has no stop at the requested ID and there is no bookmark to repair — the rider arrived from a deep link, a search result or a map pin."
+            )
+            return .standard(.init(title: title, body: message, image: UIImage(systemName: "mappin.slash")))
         }
 
         if let error = self.operationError {
@@ -807,7 +847,7 @@ public class StopViewController: UIViewController,
             arrivalDeparture: arrivalDeparture,
             isAlarmAvailable: alarmAvailable,
             highlightTimeOnDisplay: highlightTimeOnDisplay,
-            transferContext: transferContext,
+            transferContext: displayedTransferContext,
             onSelectAction: onSelectAction,
             alarmAction: addAlarmAction,
             bookmarkAction: bookmarkAction,
@@ -855,7 +895,7 @@ public class StopViewController: UIViewController,
         // Filter departures before transfer arrival time, unless user opted to show all.
         // Only insert the "Show earlier" button when sorting by time (groupRoute == nil)
         // to avoid duplicate item IDs across route groups. See #409.
-        if let transferContext = transferContext, !showAllTransferDepartures {
+        if let transferContext = displayedTransferContext, !showAllTransferDepartures {
             let (visible, hidden) = partitionTransferDepartures(items: items, arrivalTime: transferContext.arrivalTime)
             items = visible
             if !hidden.isEmpty && groupRoute == nil {
@@ -928,7 +968,7 @@ public class StopViewController: UIViewController,
                 actions.append(schedule)
             }
 
-            let shareTrip = UIAction(title: OBALoc("stop_controller.share_trip", value: "Share Trip", comment: "Context menu button that allows the user to share their trip status."), image: Icons.share) { [weak self] _ in
+            let shareTrip = UIAction(title: Strings.shareTrip, image: Icons.share) { [weak self] _ in
                 self?.shareTripStatus(viewModel: viewModel)
             }
             actions.append(shareTrip)
@@ -987,7 +1027,7 @@ public class StopViewController: UIViewController,
 
     /// Inserts either a transfer arrival banner or the GPS-based walk time row.
     private func addWalkTimeOrTransferBanner(to items: inout [AnyOBAListViewItem]) {
-        if let transferContext = transferContext {
+        if let transferContext = displayedTransferContext {
             let bannerItem = TransferArrivalItem(
                 id: "transfer_arrival_banner",
                 arrivalTime: transferContext.arrivalTime,

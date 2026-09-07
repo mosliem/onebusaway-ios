@@ -100,18 +100,20 @@ public class ViewRouter: NSObject, UINavigationControllerDelegate {
     ///
     /// - Parameter showToolbarOnBottom: Pass `true` when the caller will present the result as a
     ///   sheet rather than push it, which swaps the redesigned page's dark map header for a light
-    ///   one and moves its chrome into a bottom toolbar. Ignored when the flag or a transfer
-    ///   context routes to the legacy `StopViewController`, which has only the pushed layout.
+    ///   one and moves its chrome into a bottom toolbar. Ignored when the flag is off and the
+    ///   legacy `StopViewController` is used (pushed layout only). Transfer context is still
+    ///   gated by `displayedTransferContext` — on the new page it drives trip highlighting;
+    ///   on the legacy page it drives the arrival banner.
     public func makeStopController(stop: Stop, bookmark: Bookmark? = nil, transferContext: TransferContext? = nil, showToolbarOnBottom: Bool = false) -> UIViewController {
-        // TransferContext UX (arrival-relative filtering, transfer banner) is not yet built on the new stop page — route transfers to the legacy screen until it is.
+        let effective = application.userDataStore.displayedTransferContext(transferContext)
         let stopController: StopContextConfigurable
-        if transferContext == nil, FeatureFlags.isNewStopPageEnabled(userDefaults: application.userDefaults) {
+        if FeatureFlags.isNewStopPageEnabled(userDefaults: application.userDefaults) {
             stopController = StopPageViewController(application: application, stop: stop, showToolbarOnBottom: showToolbarOnBottom)
         } else {
             stopController = StopViewController(application: application, stop: stop)
         }
         stopController.bookmarkContext = bookmark
-        stopController.transferContext = transferContext
+        stopController.transferContext = effective
         return stopController
     }
 

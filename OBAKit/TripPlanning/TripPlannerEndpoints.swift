@@ -24,11 +24,18 @@ enum TripPlannerEndpoints {
         return mapItem
     }
 
-    /// Maps a place pin into OTPKit's `Location`. Untitled items fall back to
-    /// `"Destination"`, matching `MapViewController.showTripPlanner`.
+    /// Maps a place pin into OTPKit's `Location`.
+    ///
+    /// The fallback title is localized, unlike the current-location one below: this
+    /// one can reach the rider on any pin that arrives without a name, whereas that
+    /// one is constructed here and never empty.
     static func location(from mapItem: MKMapItem) -> Location {
         Location(
-            title: mapItem.name ?? "Destination",
+            title: mapItem.name ?? OBALoc(
+                "trip_planner.destination.default_title",
+                value: "Destination",
+                comment: "Default title for a trip planner endpoint whose map item has no name"
+            ),
             subTitle: mapItem.placemark.title ?? "",
             latitude: mapItem.placemark.coordinate.latitude,
             longitude: mapItem.placemark.coordinate.longitude

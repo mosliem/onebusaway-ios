@@ -210,10 +210,13 @@ final class SheetCoordinatorTests {
     /// storing one would leave the coordinator disagreeing with the screen.
     @Test func `Set stacked detent by predicate refuses a detent the route does not declare`() {
         let coordinator = SheetCoordinator<AppSheetRoute>(root: .home)
-        coordinator.push(.stopDetails(stopID: "1"))
+        // `.nearbyAll` is `[.large]`-only. Deliberately not `.stopDetails`, which
+        // now declares `.medium` so the trip planner can uncover the map behind it.
+        coordinator.push(.nearbyAll)
+        #expect(AppSheetRoute.nearbyAll.detentConfiguration.detents.contains(.medium) == false)
 
         let applied = coordinator.setStackedDetent(.medium) { route in
-            if case .stopDetails = route { return true }
+            if case .nearbyAll = route { return true }
             return false
         }
 

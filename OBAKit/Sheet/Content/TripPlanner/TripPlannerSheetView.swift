@@ -49,12 +49,17 @@ final class TripPlannerObservableWrapper: ObservableObject {
     /// Guarded because `.task` re-runs whenever the view's identity changes, and a
     /// second application would stamp the route's original mode back over whatever the
     /// rider has since chosen.
-    func applyPrefillIfNeeded(destination: Location?, viaPoint: CLLocationCoordinate2D?, transportMode: TransportMode?) {
+    func applyPrefillIfNeeded(
+        origin: Location?,
+        destination: Location?,
+        viaPoint: CLLocationCoordinate2D?,
+        transportMode: TransportMode?
+    ) {
         guard !didPrefill else { return }
         didPrefill = true
 
         _ = tripPlanner.createTripPlannerView(
-            origin: nil,
+            origin: origin,
             destination: destination,
             viaPoint: viaPoint,
             transportMode: transportMode,
@@ -191,7 +196,10 @@ private struct TripPlannerSheetContent: View {
         plannerWrapper.tripPlanner.createTripPlannerView(chrome: .embedded)
             .task {
                 plannerWrapper.applyPrefillIfNeeded(
-                    destination: mapItemToLocation(request.destination),
+                    // Nil origin leaves OTPKit to seed the rider's current location,
+                    // which its own `.task` does when nothing is selected yet.
+                    origin: TripPlannerEndpoints.destination(from: request.origin),
+                    destination: TripPlannerEndpoints.destination(from: request.destination),
                     viaPoint: request.viaPoint,
                     transportMode: request.transportMode
                 )
@@ -215,23 +223,6 @@ private struct TripPlannerSheetContent: View {
             .onDisappear {
                 cleanupPlanner()
             }
-    }
-
-    /// Converts an `MKMapItem` destination to OTPKit's `Location` type.
-    ///
-    /// Follows the same pattern as `MapViewController.showTripPlanner(_:)`.
-    private func mapItemToLocation(_ mapItem: MKMapItem?) -> Location? {
-        guard let mapItem else { return nil }
-        return Location(
-            title: mapItem.name ?? OBALoc(
-                "trip_planner.destination.default_title",
-                value: "Destination",
-                comment: "Default title for a trip planner destination"
-            ),
-            subTitle: mapItem.placemark.title ?? "",
-            latitude: mapItem.placemark.coordinate.latitude,
-            longitude: mapItem.placemark.coordinate.longitude
-        )
     }
 
     /// Builds an OTPKit `TripPlanner` for the current region.

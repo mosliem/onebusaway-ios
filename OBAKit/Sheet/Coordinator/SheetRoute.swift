@@ -21,43 +21,72 @@ import OTPKit
 /// prefills a via point and locks the mode. All fields are optional so the planner
 /// can open empty (all three `nil`), with partial prefill, or fully configured.
 nonisolated struct TripPlannerRequest: Hashable, Equatable {
+    /// Origin pin, if the entry point knows where the trip starts. Nil leaves the
+    /// planner to seed the rider's current location, which is the usual case —
+    /// only "Directions from Here" on the stop page fills this in.
+    let origin: MKMapItem?
+
     /// Destination pin on the map, if prefilled by the entry point (e.g., a
     /// tapped map item). The planner uses this to seed the destination field.
     let destination: MKMapItem?
 
-    /// Intermediate point (stopover) for multi-segment trips. Currently used by
-    /// rental (later) to seed a via point. `CLLocationCoordinate2D` is not
-    /// `Hashable` or `Equatable`, so we implement both over latitude/longitude.
+    /// Intermediate point every planned trip must pass through — "plan a trip using
+    /// this bike" passes the vehicle's location. `CLLocationCoordinate2D` is not
+    /// `Hashable` or `Equatable`, so both are implemented over latitude/longitude.
     let viaPoint: CLLocationCoordinate2D?
 
-    /// Transport mode to preselect or lock. Used by rental (later) to fix a mode
-    /// when the planner opens; map-item entry (this task) leaves it `nil` so the
-    /// user can pick freely.
+    /// Transport mode to preselect or lock. The rental entry point pins this to
+    /// `.transitBikeRental`, because OTP will not route through a via point in a
+    /// rental-only mode. Every other entry point leaves it `nil` so the rider picks.
     let transportMode: TransportMode?
 
     /// Initializer with all parameters optional, defaulting to `nil`.
     init(
+        origin: MKMapItem? = nil,
         destination: MKMapItem? = nil,
         viaPoint: CLLocationCoordinate2D? = nil,
         transportMode: TransportMode? = nil
     ) {
+        // A trip from a place to itself is not a trip. No entry point can build one
+        // — each sets exactly one end — so this catches a future caller wiring the
+        // same pin into both, which OTP would answer with an empty itinerary and no
+        // explanation. Debug-only: a bad prefill is not worth crashing a rider over.
+        assert(
+            !TripPlannerRequest.sameplace(origin, destination) || origin == nil,
+            "TripPlannerRequest origin and destination are the same place"
+        )
+
+        self.origin = origin
         self.destination = destination
         self.viaPoint = viaPoint
         self.transportMode = transportMode
     }
 
+    /// Hashes an optional pin by coordinate, matching `AppSheetRoute.mapItem`.
+    /// `MKMapItem` is a reference type, so identity would make two requests for
+    /// the same place unequal.
+    private static func combine(_ mapItem: MKMapItem?, into hasher: inout Hasher) {
+        guard let mapItem else {
+            hasher.combine(NSNull())
+            return
+        }
+        let coordinate = mapItem.placemark.coordinate
+        hasher.combine(coordinate.latitude)
+        hasher.combine(coordinate.longitude)
+    }
+
+    /// Coordinate equality for two optional pins, nil-equal-nil included.
+    private static func sameplace(_ lhs: MKMapItem?, _ rhs: MKMapItem?) -> Bool {
+        guard let lhs, let rhs else { return lhs == nil && rhs == nil }
+        return lhs.placemark.coordinate.latitude == rhs.placemark.coordinate.latitude
+            && lhs.placemark.coordinate.longitude == rhs.placemark.coordinate.longitude
+    }
+
     // MARK: - Hashable
 
     func hash(into hasher: inout Hasher) {
-        // `MKMapItem` is a reference type; follow what `AppSheetRoute.mapItem`
-        // does — hash the coordinate.
-        if let destination {
-            let coordinate = destination.placemark.coordinate
-            hasher.combine(coordinate.latitude)
-            hasher.combine(coordinate.longitude)
-        } else {
-            hasher.combine(NSNull())
-        }
+        Self.combine(origin, into: &hasher)
+        Self.combine(destination, into: &hasher)
 
         // `CLLocationCoordinate2D` is not `Hashable`; hash its components.
         if let viaPoint {
@@ -73,18 +102,6 @@ nonisolated struct TripPlannerRequest: Hashable, Equatable {
     // MARK: - Equatable
 
     static func == (lhs: TripPlannerRequest, rhs: TripPlannerRequest) -> Bool {
-        // For reference types like `MKMapItem`, compare by identity (===) or
-        // coordinate. The mapItem case uses coordinates, so we do the same.
-        let destinationEqual: Bool
-        if let lhsDest = lhs.destination, let rhsDest = rhs.destination {
-            let lhsCoord = lhsDest.placemark.coordinate
-            let rhsCoord = rhsDest.placemark.coordinate
-            destinationEqual = (lhsCoord.latitude == rhsCoord.latitude &&
-                               lhsCoord.longitude == rhsCoord.longitude)
-        } else {
-            destinationEqual = (lhs.destination == nil && rhs.destination == nil)
-        }
-
         // For `CLLocationCoordinate2D`, compare latitude and longitude.
         let viaPointEqual: Bool
         if let lhsVia = lhs.viaPoint, let rhsVia = rhs.viaPoint {
@@ -96,7 +113,10 @@ nonisolated struct TripPlannerRequest: Hashable, Equatable {
 
         let transportModeEqual = lhs.transportMode == rhs.transportMode
 
-        return destinationEqual && viaPointEqual && transportModeEqual
+        return sameplace(lhs.origin, rhs.origin)
+            && sameplace(lhs.destination, rhs.destination)
+            && viaPointEqual
+            && transportModeEqual
     }
 }
 
@@ -214,22 +234,20 @@ nonisolated extension AppSheetRoute {
         case .stopDetails(let stopID):
             return "\(caseName)-\(stopID)"
         case .tripPlanner(let request):
-            // Analytics key based on payload presence. Privacy guard: no
-            // coordinates in the key (rider location is sensitive). Instead, flag
-            // which fields are present so analytics can track entry points
-            // separately (map item, rental, etc.) without leaking location.
-            var parts: [String] = []
-            if request.destination != nil {
-                parts.append("destination")
-            }
-            if request.viaPoint != nil {
-                parts.append("viaPoint")
-            }
-            if request.transportMode != nil {
-                parts.append("transportMode")
-            }
-            let suffix = parts.isEmpty ? "blank" : parts.joined(separator: "_")
-            return "\(caseName)_\(suffix)"
+            // Every field, coordinates included — the same shape `.mapItem` and
+            // `.nearbyStops` use. This is `Identifiable`, and SwiftUI's
+            // `.sheet(item:)` re-presents on a change of `id`: two planner routes
+            // that differ only in where the rider is going must not share one.
+            //
+            // Reporting this to analytics would leak rider location. Nothing does
+            // — use `analyticsKey`, which is the privacy-preserving form.
+            return [
+                caseName,
+                Self.idComponent(request.origin?.placemark.coordinate),
+                Self.idComponent(request.destination?.placemark.coordinate),
+                Self.idComponent(request.viaPoint),
+                request.transportMode.map(String.init(describing:)) ?? "anyMode"
+            ].joined(separator: "-")
         case .tripDetails(let tripID):
             return "\(caseName)-\(tripID)"
         case .currentTrip(let route):
@@ -253,6 +271,41 @@ nonisolated extension AppSheetRoute {
         case .nearbyStops(let coordinate):
             return "\(caseName)-\(coordinate.latitude)-\(coordinate.longitude)"
         }
+    }
+
+    /// One coordinate as an `id` component, or `"none"` when absent.
+    private static func idComponent(_ coordinate: CLLocationCoordinate2D?) -> String {
+        guard let coordinate else { return "none" }
+        return "\(coordinate.latitude),\(coordinate.longitude)"
+    }
+
+    /// A label safe to report to analytics.
+    ///
+    /// `id` cannot serve here: it carries coordinates, and where a rider is going is
+    /// sensitive. This reports *which fields were prefilled* instead, which is the
+    /// thing worth measuring anyway — it separates the entry points (a tapped map
+    /// item, a rental vehicle, a stop's "Directions from Here") without saying where
+    /// any of them were.
+    ///
+    /// Only `.tripPlanner` carries a payload private enough to need this; every other
+    /// route's `id` is already safe, so they pass theirs straight through.
+    var analyticsKey: String {
+        guard case .tripPlanner(let request) = self else { return id }
+
+        var parts: [String] = []
+        if request.origin != nil {
+            parts.append("origin")
+        }
+        if request.destination != nil {
+            parts.append("destination")
+        }
+        if request.viaPoint != nil {
+            parts.append("viaPoint")
+        }
+        if request.transportMode != nil {
+            parts.append("transportMode")
+        }
+        return "\(caseName)_\(parts.isEmpty ? "blank" : parts.joined(separator: "_"))"
     }
 
     // MARK: Hashable / Equatable
@@ -346,19 +399,22 @@ nonisolated extension AppSheetRoute {
                 backgroundInteraction: .disabled
             )
         case .stopDetails:
-            // `backgroundInteraction` must be stated explicitly here, exactly as
-            // the other `[.large]`-only routes above do. The default is
-            // `.enabled(upThrough: .medium)`, which maps to
-            // `UISheetPresentationController.largestUndimmedDetentIdentifier =
-            // .medium`. With `.medium` absent from `detents`, UIKit has no detent
-            // at which to begin dimming, so the sheet stays undimmed and
-            // non-modal and every touch falls through to the map behind it —
-            // the sheet renders but neither scrolls nor responds to taps.
+            // Opens full height — departures are the point of this sheet, and it
+            // carries its own close button — but `.medium` has to be *reachable*,
+            // because "Directions to/from Here" stacks the trip planner on top of
+            // it. The planner sits at `.medium` to keep its route visible, which
+            // buys nothing if a full-height stop sheet is still covering the map
+            // behind it. `StopDetailsSheetView.planTrip(_:)` drives it down on the
+            // way in; the rider can drag it back.
             //
-            // Routes that safely leave the default (`.tripPlanner`, `.more`, …)
-            // all carry `.medium` in their detent set.
+            // `backgroundInteraction` stays explicitly `.disabled` rather than
+            // falling back to the default `.enabled(upThrough: .medium)`. That
+            // default maps to `largestUndimmedDetentIdentifier = .medium`, which
+            // would leave this sheet undimmed and non-modal at `.medium` and let
+            // every touch fall through to the map — the sheet would render but
+            // neither scroll nor respond to taps.
             return SheetDetentConfiguration(
-                detents: [.large],
+                detents: [.medium, .large],
                 initialDetent: .large,
                 isDismissDisabled: false,
                 backgroundInteraction: .disabled

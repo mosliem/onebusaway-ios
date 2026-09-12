@@ -106,11 +106,12 @@ final class AppSheetRouteTests {
         }
     }
 
-    @Test func `Stop details detent is pinned full height and interactively dismissible`() {
-        // The stop detail sheet is pinned to full height (`.large`) and carries
-        // its own close button, but the OS drag-down gesture stays enabled.
+    /// Opens full height, but `.medium` must be reachable: "Directions to/from
+    /// Here" stacks the trip planner on top, and the planner sitting at `.medium`
+    /// buys nothing if a full-height stop sheet still covers the map behind it.
+    @Test func `Stop details opens full height with medium reachable`() {
         let config = AppSheetRoute.stopDetails(stopID: "1").detentConfiguration
-        #expect(config.detents == [.large])
+        #expect(config.detents == [.medium, .large])
         #expect(config.initialDetent == .large)
         #expect(config.isDismissDisabled == false)
         #expect(config.fullScreenDetent == nil)
@@ -259,28 +260,84 @@ final class AppSheetRouteTests {
         let viaPointRequest = AppSheetRoute.tripPlanner(TripPlannerRequest(viaPoint: coord))
         let emptyRequest = AppSheetRoute.tripPlanner(TripPlannerRequest())
 
-        #expect(destinationRequest.id == "tripPlanner_destination")
-        #expect(viaPointRequest.id == "tripPlanner_viaPoint")
-        #expect(emptyRequest.id == "tripPlanner_blank")
+        let originRequest = AppSheetRoute.tripPlanner(TripPlannerRequest(origin: item))
+
+        #expect(destinationRequest.analyticsKey == "tripPlanner_destination")
+        #expect(viaPointRequest.analyticsKey == "tripPlanner_viaPoint")
+        #expect(emptyRequest.analyticsKey == "tripPlanner_blank")
+        // Stop-page "Directions from Here" is the only entry point that fills this
+        // in, and it must not read as the same event as planning *to* somewhere.
+        #expect(originRequest.analyticsKey == "tripPlanner_origin")
+        #expect(originRequest.analyticsKey != destinationRequest.analyticsKey)
 
         // Verify IDs differ
-        #expect(destinationRequest.id != viaPointRequest.id)
-        #expect(destinationRequest.id != emptyRequest.id)
-        #expect(viaPointRequest.id != emptyRequest.id)
+        #expect(destinationRequest.analyticsKey != viaPointRequest.analyticsKey)
+        #expect(destinationRequest.analyticsKey != emptyRequest.analyticsKey)
+        #expect(viaPointRequest.analyticsKey != emptyRequest.analyticsKey)
     }
 
+    /// `origin` and `destination` hold the same kind of value, so an equality or
+    /// hash that ignored one would quietly merge "to this stop" with "from it" —
+    /// the sheet coordinator identifies routes by these.
+    @Test func `Trip planner requests differing only by which end holds the stop are unequal`() {
+        let item = MKMapItem(placemark: MKPlacemark(coordinate: CLLocationCoordinate2D(latitude: 47.6, longitude: -122.3)))
+
+        let toStop = TripPlannerRequest(destination: item)
+        let fromStop = TripPlannerRequest(origin: item)
+
+        #expect(toStop != fromStop)
+        #expect(Set([toStop, fromStop]).count == 2)
+    }
+
+    /// Two requests naming the same origin are the same request: `MKMapItem` is a
+    /// reference type, so this has to compare by coordinate the way `destination`
+    /// already does.
+    @Test func `Trip planner requests with the same origin coordinate are equal`() {
+        let coordinate = CLLocationCoordinate2D(latitude: 47.6, longitude: -122.3)
+        let one = TripPlannerRequest(origin: MKMapItem(placemark: MKPlacemark(coordinate: coordinate)))
+        let two = TripPlannerRequest(origin: MKMapItem(placemark: MKPlacemark(coordinate: coordinate)))
+
+        #expect(one == two)
+        #expect(Set([one, two]).count == 1)
+    }
+
+    /// Where a rider is going is sensitive, so the reportable label must not carry
+    /// it. `id` deliberately does — it is `Identifiable`, never reported — which is
+    /// exactly why the two are separate properties.
     @Test func `Trip planner analytics key contains no coordinate digits`() {
         let item = MKMapItem(placemark: MKPlacemark(coordinate: CLLocationCoordinate2D(latitude: 47.6123456, longitude: -122.3456789)))
         let coord = CLLocationCoordinate2D(latitude: 47.6123456, longitude: -122.3456789)
 
         let destinationRequest = AppSheetRoute.tripPlanner(TripPlannerRequest(destination: item))
         let viaPointRequest = AppSheetRoute.tripPlanner(TripPlannerRequest(viaPoint: coord))
+        let originRequest = AppSheetRoute.tripPlanner(TripPlannerRequest(origin: item))
 
-        // Analytics keys should not contain coordinate numbers (privacy guard)
-        #expect(!destinationRequest.id.contains("47."))
-        #expect(!destinationRequest.id.contains("122."))
-        #expect(!viaPointRequest.id.contains("47."))
-        #expect(!viaPointRequest.id.contains("122."))
+        for route in [destinationRequest, viaPointRequest, originRequest] {
+            #expect(!route.analyticsKey.contains("47."))
+            #expect(!route.analyticsKey.contains("122."))
+        }
+
+        // The identity carries them, which is what makes two planner routes for
+        // different places distinguishable to `.sheet(item:)`.
+        #expect(destinationRequest.id.contains("47.6123456"))
+    }
+
+    /// Regression: `id` used to report only *which* fields were filled, so every
+    /// "Directions from Here" shared one id no matter which stop it came from.
+    /// `.sheet(item:)` re-presents on a change of `id`, so a second planner route
+    /// would have reused the first one's content.
+    @Test func `Trip planner routes for different places have different identities`() {
+        let seattle = MKMapItem(placemark: MKPlacemark(coordinate: CLLocationCoordinate2D(latitude: 47.6, longitude: -122.3)))
+        let tacoma = MKMapItem(placemark: MKPlacemark(coordinate: CLLocationCoordinate2D(latitude: 47.25, longitude: -122.44)))
+
+        let fromSeattle = AppSheetRoute.tripPlanner(TripPlannerRequest(origin: seattle))
+        let fromTacoma = AppSheetRoute.tripPlanner(TripPlannerRequest(origin: tacoma))
+
+        #expect(fromSeattle.id != fromTacoma.id)
+        #expect(fromSeattle != fromTacoma)
+        #expect(Set([fromSeattle, fromTacoma]).count == 2)
+        // Same entry point, so analytics still groups them together.
+        #expect(fromSeattle.analyticsKey == fromTacoma.analyticsKey)
     }
 
     @Test func `Map settings route has a stable id`() {

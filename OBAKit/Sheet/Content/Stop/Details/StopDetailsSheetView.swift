@@ -430,9 +430,25 @@ struct StopDetailsSheetView: View {
             onServiceAlerts: navigation.showServiceAlerts,
             onNearbyStops: navigation.showNearbyStops,
             onWalkingDirections: navigation.showWalkingDirections,
-            onDirectionsToHere: navigation.showDirectionsToHere,
-            onDirectionsFromHere: navigation.showDirectionsFromHere,
+            onDirectionsToHere: planTrip(.directionsToStop),
+            onDirectionsFromHere: planTrip(.directionsFromStop),
             onReportProblem: navigation.showReportProblem
+        )
+    }
+
+    /// "Directions to Here" / "Directions from Here", as a pushed planner route.
+    ///
+    /// The shared `StopPageActionPresenter` hands both of these down as `nil` here:
+    /// its gate is `StopTripPlannerAction.canPresent`, which needs a classic root
+    /// controller to present `MapViewController.showTripPlanner` on, and map-panel
+    /// mode has none. The panel does not need one — the planner is a sheet route —
+    /// so it gates on `isAvailable` alone and pushes, the way `onNearbyStops` does.
+    private func planTrip(_ action: StopTripPlannerAction) -> (() -> Void)? {
+        StopTripPlannerAction.panelHandler(
+            for: action,
+            application: presenter.application,
+            coordinator: coordinator,
+            stop: { viewModel.stop }
         )
     }
 

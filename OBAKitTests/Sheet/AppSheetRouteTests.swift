@@ -116,10 +116,14 @@ final class AppSheetRouteTests {
         #expect(config.fullScreenDetent == nil)
     }
 
-    @Test func `Trip planner detent includes tip rung`() {
+    /// Opens at `.medium`, not `.large`: the planner draws its route on the map behind
+    /// it, and a full-height sheet would cover the answer. `.medium` is also the rung
+    /// the sheet returns to when OTPKit's directions sheet opens over it.
+    @Test func `Trip planner opens at medium and includes tip rung`() {
         let config = AppSheetRoute.tripPlanner(TripPlannerRequest()).detentConfiguration
         #expect(config.detents == [.height(AppSheetRoute.tripPlannerTipHeight), .medium, .large])
-        #expect(config.initialDetent == .large)
+        #expect(config.initialDetent == .medium)
+        #expect(config.detents.contains(config.initialDetent))
         #expect(config.isDismissDisabled == false)
         #expect(config.fullScreenDetent == nil)
     }

@@ -172,6 +172,55 @@ final class SheetCoordinatorTests {
         #expect(coordinator.stackedDetents == original)
     }
 
+    // MARK: - setStackedDetent(_:forTopmostRouteMatching:)
+
+    /// The depth-free overload is what a sheet's own content can call: it knows which
+    /// route it is, never where it sits in the pile.
+    @Test func `Set stacked detent by predicate targets the topmost match`() {
+        let coordinator = SheetCoordinator<AppSheetRoute>(root: .home)
+        coordinator.push(.tripPlanner(TripPlannerRequest()))
+        coordinator.push(.stopDetails(stopID: "1"))
+        coordinator.push(.tripPlanner(TripPlannerRequest(viaPoint: CLLocationCoordinate2D(latitude: 1, longitude: 2))))
+
+        let applied = coordinator.setStackedDetent(.large) { route in
+            if case .tripPlanner = route { return true }
+            return false
+        }
+
+        #expect(applied)
+        // Depth 2, not depth 0: the topmost planner is the one on screen.
+        #expect(coordinator.stackedDetents == [.medium, .large, .large])
+    }
+
+    @Test func `Set stacked detent by predicate is a no op when nothing matches`() {
+        let coordinator = SheetCoordinator<AppSheetRoute>(root: .home)
+        coordinator.push(.stopDetails(stopID: "1"))
+        let original = coordinator.stackedDetents
+
+        let applied = coordinator.setStackedDetent(.medium) { route in
+            if case .tripPlanner = route { return true }
+            return false
+        }
+
+        #expect(applied == false)
+        #expect(coordinator.stackedDetents == original)
+    }
+
+    /// `presentationDetents(_:selection:)` ignores a selection outside its set, so
+    /// storing one would leave the coordinator disagreeing with the screen.
+    @Test func `Set stacked detent by predicate refuses a detent the route does not declare`() {
+        let coordinator = SheetCoordinator<AppSheetRoute>(root: .home)
+        coordinator.push(.stopDetails(stopID: "1"))
+
+        let applied = coordinator.setStackedDetent(.medium) { route in
+            if case .stopDetails = route { return true }
+            return false
+        }
+
+        #expect(applied == false)
+        #expect(coordinator.stackedDetents == [.large])
+    }
+
     // MARK: - stackedRoute(at:) / stackedDetent(at:fallback:)
 
     @Test func `Stacked route at depth returns route when in range`() {

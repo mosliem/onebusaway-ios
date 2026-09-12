@@ -303,13 +303,25 @@ struct MapPanelRootView: View {
             case .stop(let stopID):
                 coordinator.push(.stopDetails(stopID: stopID))
             case .rental(let rentalID):
+                // Pin before pushing: the rider just tapped this pin, so it is live now,
+                // and the sheet must keep naming it even if the map later moves somewhere
+                // the feed no longer reports it from. See `pinForOpenSheet`.
+                if let rental = layersModel.rental(withID: rentalID) {
+                    layersModel.pinForOpenSheet([rental])
+                }
                 coordinator.push(.rentalDetail(rentalID: rentalID))
             case .rentalCluster(let clusterID):
                 let members = layersModel.rentalItems
                     .first { $0.id == clusterID }?
                     .members ?? []
                 guard !members.isEmpty else { break }
+                layersModel.pinForOpenSheet(members)
                 coordinator.push(.rentalCluster(memberIDs: members.map(\.id)))
+            case .tripPlannerAnnotation(let identifier):
+                // Hand the tap straight back to OTPKit, which owns what a pin on
+                // its own route means. No route is pushed: the planner sheet is
+                // already on the stack and reacts to this itself.
+                tripPlannerDisplay.handleAnnotationSelection(identifier: identifier)
             }
             mapSelection = nil
         }
@@ -791,4 +803,3 @@ private final class RegionMismatchCameraActions: ObservableObject {
     @Published var applyLaunch = false
     @Published var showSelectedServiceRect = false
 }
-

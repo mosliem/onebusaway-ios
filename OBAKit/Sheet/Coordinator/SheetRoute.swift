@@ -364,12 +364,16 @@ nonisolated extension AppSheetRoute {
                 backgroundInteraction: .disabled
             )
         case .tripPlanner:
-            // OTPKit's trip planner collapses to its own custom tip detent when
-            // directions open. The panel owns detents, so it needs a comparable
-            // tip rung to stay in sync with OTPKit's collapsed state.
+            // Opens at `.medium`: planning a trip is a map task, and the origin and
+            // destination fields are what the rider reads first — a full-height sheet
+            // hides the very map the trip is being drawn on.
+            //
+            // OTPKit's trip planner also collapses to its own custom tip detent when
+            // directions open. The panel owns detents, so it needs a comparable tip
+            // rung to stay in sync with OTPKit's collapsed state.
             return SheetDetentConfiguration(
                 detents: [.height(AppSheetRoute.tripPlannerTipHeight), .medium, .large],
-                initialDetent: .large,
+                initialDetent: .medium,
                 isDismissDisabled: false
             )
         case .tripDetails, .routePicker, .currentTrip, .transitAlert, .more, .settings:

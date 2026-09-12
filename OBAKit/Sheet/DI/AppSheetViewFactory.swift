@@ -221,9 +221,6 @@ final class AppSheetViewFactory {
 
     /// Resolves the id to a live model, so a vehicle that leaves the feed while
     /// the sheet is open reads as gone rather than as a stale row.
-    ///
-    /// `onPlanTrip` is nil: the panel has no trip planner to route into. See
-    /// the doc comment on `RentalDetailView.onPlanTrip`.
     @ViewBuilder
     func rentalDetailView(rentalID: VehicleRental.ID) -> some View {
         if let rental = layersModel.rental(withID: rentalID) {
@@ -232,7 +229,7 @@ final class AppSheetViewFactory {
                 fetchedAt: layersModel.rentalFetchedAt,
                 staleAfter: layersModel.rentalStaleAfter,
                 userLocation: layersModel.rentalUserLocation,
-                onPlanTrip: nil,
+                onPlanTrip: planTripUsingRental,
                 onOpenURL: openRentalURL
             )
         } else {
@@ -251,9 +248,65 @@ final class AppSheetViewFactory {
                 fetchedAt: layersModel.rentalFetchedAt,
                 staleAfter: layersModel.rentalStaleAfter,
                 userLocation: layersModel.rentalUserLocation,
-                onPlanTrip: nil,
+                onPlanTrip: planTripUsingRental,
+                onSelectRental: selectRentalFromCluster,
                 onOpenURL: openRentalURL
             )
+        }
+    }
+
+    /// Drills from the cluster list into one vehicle's sheet, as a pushed route.
+    ///
+    /// The cluster list can present its own rental sheet, and does on the UIKit surface.
+    /// Here it must not: that sheet and the stacked layer's next route would be two
+    /// presentations from one view, which SwiftUI answers with "Currently, only presenting
+    /// a single sheet is supported" — leaving anything pushed from the rental sheet (the
+    /// trip planner, in particular) queued until the rider dismissed it by hand.
+    ///
+    /// Routing through the coordinator instead keeps one presentation owner, and lands on
+    /// the same `.rentalDetail` route a tap on a lone map pin opens.
+    var selectRentalFromCluster: (VehicleRental) -> Void {
+        { [coordinator, layersModel] rental in
+            layersModel.pinForOpenSheet([rental])
+            coordinator.push(.rentalDetail(rentalID: rental.id))
+        }
+    }
+
+    /// Whether the rental sheets should offer trip planning at all.
+    ///
+    /// Split out from `planTripUsingRental` so the gate is testable against an
+    /// arbitrary region. Driving it through `RegionsService` instead would mean
+    /// writing a custom region to the shared on-disk regions store, which every
+    /// `Application` in the test process reads — it takes down unrelated suites.
+    nonisolated static func offersTripPlanning(in region: Region?) -> Bool {
+        region?.supportsOTP == true
+    }
+
+    /// Plans a trip *through* this vehicle rather than *to* it.
+    ///
+    /// The vehicle is a via point, not a destination: a rider wants to walk to
+    /// the bike, ride it, and carry on. OTP will not route through a via point
+    /// in a rental-only mode, which is why the mode is pinned to
+    /// `.transitBikeRental`. Mirrors `MapViewController.rentalLayer(planTripUsing:)`
+    /// on the UIKit surface, analytics event included.
+    ///
+    /// `nil` when the region has no OTP server, which hides the button rather
+    /// than disabling it — a dead primary action is worse than none.
+    var planTripUsingRental: ((VehicleRental) -> Void)? {
+        guard AppSheetViewFactory.offersTripPlanning(in: application.regionsService.currentRegion) else {
+            return nil
+        }
+
+        return { [weak application, coordinator] rental in
+            application?.analytics?.reportEvent(
+                pageURL: "app://localhost/bikeshare",
+                label: AnalyticsLabels.rentalPlanTripTapped,
+                value: rental.rentalNetwork?.networkId
+            )
+            coordinator.push(.tripPlanner(TripPlannerRequest(
+                viaPoint: rental.coordinate,
+                transportMode: .transitBikeRental
+            )))
         }
     }
 

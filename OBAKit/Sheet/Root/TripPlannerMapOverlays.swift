@@ -40,14 +40,14 @@ func tripPlannerMapContent(
         )
     }
 
-    // Draw annotations untagged: the trip plan UI handles selection, and
-    // MapPinSelection (which would enable `@State var selectedAnnotation`) is
-    // on PR #1293. Tagging annotations here would duplicate that PR's work on
-    // a file it rewrites heavily.
+    // Tagged with OTPKit's own opaque identifier so a tap routes back to OTPKit
+    // verbatim — the panel never interprets it. Same tagging shape the ambient
+    // stop and rental layers use, so all three share one `selection` binding.
     ForEach(display.annotations) { annotation in
         Annotation("", coordinate: annotation.coordinate) {
             tripAnnotationContent(for: annotation)
         }
+        .tag(MapPinSelection.tripPlannerAnnotation(annotation.identifier))
     }
 }
 

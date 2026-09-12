@@ -80,15 +80,17 @@ final class TripPlannerMapDisplayModel: ObservableObject, OTPMapProvider {
     /// Insertion-ordered on purpose: OTPKit draws a white halo under each leg and then
     /// the coloured line on top, so the order it adds them in *is* the z-order. A
     /// dictionary would lose that and the halos would paint over the routes.
-    @Published private(set) var routes: [Route] = []
+    ///
+    /// Deliberately not `@Published` — see `scheduleChangeNotification()`.
+    private(set) var routes: [Route] = []
 
-    /// Insertion-ordered for the same reason.
-    @Published private(set) var annotations: [Annotation] = []
+    /// Insertion-ordered for the same reason. Not `@Published`, same reason.
+    private(set) var annotations: [Annotation] = []
 
     /// Whether OTPKit currently wants the user's location shown. The panel already shows
     /// it unconditionally, so this is recorded rather than acted on — see `setMapType`
     /// below for the general rule.
-    @Published private(set) var wantsUserLocation = false
+    private(set) var wantsUserLocation = false
 
     /// True once anything is drawn. Lets the view suppress the ambient stop layer while a
     /// trip is on the map, the way `MapSearchDisplayModel.suppressesAmbientStops` does
@@ -128,7 +130,7 @@ final class TripPlannerMapDisplayModel: ObservableObject, OTPMapProvider {
         }
     }
 
-    @Published private(set) var cameraTarget: CameraTarget?
+    private(set) var cameraTarget: CameraTarget?
 
     /// The map's current visible region, pushed in by the view on every camera settle.
     ///
@@ -142,6 +144,41 @@ final class TripPlannerMapDisplayModel: ObservableObject, OTPMapProvider {
     private var mapTapHandler: ((CLLocationCoordinate2D) -> Void)?
     private var annotationSelectionHandler: ((String) -> Void)?
 
+    // MARK: - Change notification
+
+    /// True while a notification is already queued for this turn.
+    private var changeNotificationScheduled = false
+
+    /// Tells observers to re-read, one runloop turn later.
+    ///
+    /// OTPKit drives this model from inside SwiftUI's own update pass: `DirectionsSheetView`
+    /// calls `MapCoordinator.showItinerary` / `focusOnLeg` from `onAppear` and from
+    /// `onChange(of:)` on the detent, the focused leg and the trip phase, and every one of
+    /// those lands here as a mutation. Publishing synchronously from those call sites is
+    /// what SwiftUI reports as "Publishing changes from within view updates is not allowed"
+    /// — on *every* interaction with the directions sheet, because every interaction moves
+    /// the map.
+    ///
+    /// This is specific to a state-backed `OTPMapProvider`. `MKMapViewAdapter` writes to an
+    /// `MKMapView`, which no SwiftUI view observes, so the same calls are invisible there.
+    /// The seam is ours, so the deferral belongs here rather than in OTPKit.
+    ///
+    /// The properties stay plain stored values so reads remain synchronous and truthful in
+    /// the same turn as the write — `isShowingTrip` gates the ambient stop layer, and
+    /// `getCurrentRegion()` answers OTPKit synchronously. Only the *notification* moves.
+    /// Coalesced because OTPKit draws a halo and a line per leg plus an annotation per
+    /// stop: one itinerary is dozens of calls, and they deserve one re-render.
+    private func scheduleChangeNotification() {
+        guard !changeNotificationScheduled else { return }
+        changeNotificationScheduled = true
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.changeNotificationScheduled = false
+            self.objectWillChange.send()
+        }
+    }
+
     // MARK: - Host-facing API
 
     /// Records the region the map is currently showing. Call on every camera settle.
@@ -150,6 +187,10 @@ final class TripPlannerMapDisplayModel: ObservableObject, OTPMapProvider {
     }
 
     /// Applies-and-forgets the pending camera move.
+    ///
+    /// No change notification: the view calls this from its own `onChange` handler, having
+    /// just applied the target, so nothing needs to re-read on account of the clear — and
+    /// notifying from there would be the very mid-update publish this model exists to avoid.
     func consumeCameraTarget() {
         cameraTarget = nil
     }
@@ -171,6 +212,7 @@ final class TripPlannerMapDisplayModel: ObservableObject, OTPMapProvider {
         annotations.removeAll()
         cameraTarget = nil
         wantsUserLocation = false
+        scheduleChangeNotification()
     }
 
     // MARK: - OTPMapProvider: routes
@@ -197,14 +239,17 @@ final class TripPlannerMapDisplayModel: ObservableObject, OTPMapProvider {
         } else {
             routes.append(route)
         }
+        scheduleChangeNotification()
     }
 
     func removeRoute(identifier: String) {
         routes.removeAll { $0.identifier == identifier }
+        scheduleChangeNotification()
     }
 
     func clearAllRoutes() {
         routes.removeAll()
+        scheduleChangeNotification()
     }
 
     // MARK: - OTPMapProvider: annotations
@@ -235,20 +280,24 @@ final class TripPlannerMapDisplayModel: ObservableObject, OTPMapProvider {
         } else {
             annotations.append(annotation)
         }
+        scheduleChangeNotification()
     }
 
     func removeAnnotation(identifier: String) {
         annotations.removeAll { $0.identifier == identifier }
+        scheduleChangeNotification()
     }
 
     func clearAllAnnotations() {
         annotations.removeAll()
+        scheduleChangeNotification()
     }
 
     // MARK: - OTPMapProvider: camera
 
     func setRegion(_ region: MKCoordinateRegion, animated: Bool) {
         cameraTarget = .region(region, animated: animated)
+        scheduleChangeNotification()
     }
 
     func setVisibleMapRect(
@@ -257,6 +306,7 @@ final class TripPlannerMapDisplayModel: ObservableObject, OTPMapProvider {
         animated: Bool
     ) {
         cameraTarget = .rect(mapRect, edgePadding: edgePadding, animated: animated)
+        scheduleChangeNotification()
     }
 
     func getCurrentRegion() -> MKCoordinateRegion {
@@ -280,10 +330,12 @@ final class TripPlannerMapDisplayModel: ObservableObject, OTPMapProvider {
 
     func showUserLocation(_ show: Bool) {
         wantsUserLocation = show
+        scheduleChangeNotification()
     }
 
     func centerOnUserLocation(animated: Bool) {
         cameraTarget = .userLocation(animated: animated)
+        scheduleChangeNotification()
     }
 
     // MARK: - OTPMapProvider: map configuration

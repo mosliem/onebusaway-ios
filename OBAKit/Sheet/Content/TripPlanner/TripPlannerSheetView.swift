@@ -7,6 +7,7 @@
 //  LICENSE file in the root directory of this source tree.
 //
 
+import Combine
 import SwiftUI
 import MapKit
 import CoreLocation
@@ -25,8 +26,41 @@ import OTPKit
 final class TripPlannerObservableWrapper: ObservableObject {
     let tripPlanner: OTPKit.TripPlanner
 
+    private var didPrefill = false
+
     init(tripPlanner: OTPKit.TripPlanner) {
         self.tripPlanner = tripPlanner
+    }
+
+    /// Applies the route's prefill to the planner, exactly once.
+    ///
+    /// OTPKit prefills as a side effect of building the view: `createTripPlannerView`
+    /// writes `selectTransportMode` and `viaPoint`, and `TripPlannerView.init` writes
+    /// `selectedOrigin` / `selectedDestination`. Every one of those is `@Published` on
+    /// a view model SwiftUI is already observing, so doing it from `body` mutates
+    /// observed state in the middle of a view update — which is what SwiftUI reports as
+    /// "Publishing changes from within view updates is not allowed". Calling it from
+    /// `.task` instead runs the same writes one turn later, outside the update pass.
+    ///
+    /// The returned view is discarded: the prefill *is* the side effect, and the view
+    /// actually on screen is the unprefilled one `body` built, which renders from the
+    /// same view model and so picks these values up as published changes.
+    ///
+    /// Guarded because `.task` re-runs whenever the view's identity changes, and a
+    /// second application would stamp the route's original mode back over whatever the
+    /// rider has since chosen.
+    func applyPrefillIfNeeded(destination: Location?, viaPoint: CLLocationCoordinate2D?, transportMode: TransportMode?) {
+        guard !didPrefill else { return }
+        didPrefill = true
+
+        _ = tripPlanner.createTripPlannerView(
+            origin: nil,
+            destination: destination,
+            viaPoint: viaPoint,
+            transportMode: transportMode,
+            chrome: .embedded,
+            onClose: nil
+        )
     }
 }
 
@@ -122,6 +156,7 @@ private struct TripPlannerSheetContent: View {
     let tripPlannerMapDisplayModel: TripPlannerMapDisplayModel
 
     @StateObject private var plannerWrapper: TripPlannerObservableWrapper
+    @EnvironmentObject private var coordinator: SheetCoordinator<AppSheetRoute>
     @Environment(\.dismiss) private var dismiss
 
     init(
@@ -133,25 +168,50 @@ private struct TripPlannerSheetContent: View {
         self.request = request
         self.tripPlannerMapDisplayModel = tripPlannerMapDisplayModel
 
-        let planner = Self.buildTripPlanner(
-            application: application,
-            tripPlannerMapDisplayModel: tripPlannerMapDisplayModel
-        )!
-
-        _plannerWrapper = StateObject(wrappedValue: TripPlannerObservableWrapper(tripPlanner: planner))
+        // Built inside the `@StateObject` autoclosure, which SwiftUI evaluates at most
+        // once per view lifetime. Hoisting it into a `let` first would construct a
+        // `TripPlanner` — and with it a `MapCoordinator` and a `TripPlannerViewModel` —
+        // on every re-init of this struct, which SwiftUI performs freely, only to throw
+        // all but the first away.
+        //
+        // Force-unwrapped because the parent renders this only when `canBuildPlanner`
+        // has already established the region has an OTP server.
+        _plannerWrapper = StateObject(wrappedValue: TripPlannerObservableWrapper(
+            tripPlanner: Self.buildTripPlanner(
+                application: application,
+                tripPlannerMapDisplayModel: tripPlannerMapDisplayModel
+            )!
+        ))
     }
 
     var body: some View {
-        let tripPlannerView = plannerWrapper.tripPlanner.createTripPlannerView(
-            origin: nil,
-            destination: mapItemToLocation(request.destination),
-            viaPoint: request.viaPoint,
-            transportMode: request.transportMode,
-            chrome: .embedded,
-            onClose: nil
-        )
-
-        tripPlannerView
+        // Built with no prefill so this pass writes nothing to the planner's view
+        // model — see `applyPrefillIfNeeded`, which does the writing from `.task`.
+        // Every nil argument is a documented no-op inside OTPKit.
+        plannerWrapper.tripPlanner.createTripPlannerView(chrome: .embedded)
+            .task {
+                plannerWrapper.applyPrefillIfNeeded(
+                    destination: mapItemToLocation(request.destination),
+                    viaPoint: request.viaPoint,
+                    transportMode: request.transportMode
+                )
+            }
+            .onReceive(application.notificationCenter.publisher(for: Notifications.tripStarted)) { _ in
+                // The rider picked an itinerary, so OTPKit is presenting its directions
+                // sheet on top of this one. Drop to `.medium` to uncover the map the
+                // directions describe — a full-height planner underneath would leave the
+                // route invisible behind two stacked sheets.
+                //
+                // The UIKit surface does the same thing one rung lower, moving its panel
+                // to `.tip` (`MapViewController+TripPlanner.tripStarted`). The panel stops
+                // at `.medium` because its sheets are the app's own navigation, not a
+                // dedicated planner screen: collapsing to a sliver would strand the rider
+                // with no visible way back.
+                coordinator.setStackedDetent(.medium) { route in
+                    if case .tripPlanner = route { return true }
+                    return false
+                }
+            }
             .onDisappear {
                 cleanupPlanner()
             }

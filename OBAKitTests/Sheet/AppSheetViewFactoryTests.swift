@@ -12,6 +12,7 @@ import Foundation
 import Testing
 import CoreLocation
 import MapKit
+import OTPKit
 @testable import OBAKit
 @testable import OBAKitCore
 
@@ -312,5 +313,110 @@ final class AppSheetViewFactoryTests: OBATestCase {
         let view = factory.tripPlannerView(request: request)
 
         #expect(view.tripPlannerMapDisplayModel === displayModel)
+    }
+
+    // MARK: - Rental "plan a trip using this vehicle"
+
+    /// The rental sheets plan a trip *through* the vehicle: it becomes a via
+    /// point with the mode pinned to `.transitBikeRental`, matching
+    /// `MapViewController.rentalLayer(planTripUsing:)` on the UIKit surface.
+    /// Routing *to* the vehicle would be the wrong trip — a rider wants to ride
+    /// it onward, not arrive at it.
+    @Test @MainActor
+    func `Rental plan trip handler pushes the vehicle as a via point in bike rental mode`() throws {
+        let application = buildApplication(queue: queue, dataLoader: MockDataLoader(testName: name))
+        #expect(application.regionsService.currentRegion?.supportsOTP == true)
+
+        let coordinator = SheetCoordinator<AppSheetRoute>(root: .home)
+        let factory = makeFactory(application: application, coordinator: coordinator)
+        let rental = try RentalFixtures.pedalBike(id: "b7")
+
+        let handler = try #require(factory.planTripUsingRental)
+        handler(rental)
+
+        // `.tripPlanner` prefers stacking, so it lands on the stacked layer.
+        guard case .tripPlanner(let request) = coordinator.stackedRoutes.last else {
+            Issue.record("Expected .tripPlanner stacked, got \(String(describing: coordinator.stackedRoutes.last))")
+            return
+        }
+        #expect(request.transportMode == .transitBikeRental)
+        #expect(request.viaPoint?.latitude == rental.coordinate.latitude)
+        #expect(request.viaPoint?.longitude == rental.coordinate.longitude)
+        // The vehicle is not the destination — that field stays open for the rider.
+        #expect(request.destination == nil)
+    }
+
+    /// No OTP server means no trip planner to route into, so the handler is nil
+    /// and the sheets hide the button rather than showing a dead primary action.
+    ///
+    /// Exercises the gate directly rather than swapping the app's current region:
+    /// `RegionsService.add(customRegion:)` writes to the shared on-disk regions
+    /// store, and doing that mid-suite takes 17 unrelated suites down with it.
+    @Test @MainActor
+    func `Rental trip planning is offered only when the region has an OTP server`() {
+        let noOTPRegion = Region(
+            name: "No OTP Region",
+            OBABaseURL: URL(string: "http://example.com")!,
+            coordinateRegion: MKCoordinateRegion(
+                center: CLLocationCoordinate2D(latitude: 40.7128, longitude: -74.0060),
+                latitudinalMeters: 1000.0,
+                longitudinalMeters: 1000.0
+            ),
+            contactEmail: "test@example.com"
+        )
+
+        #expect(AppSheetViewFactory.offersTripPlanning(in: noOTPRegion) == false)
+        #expect(AppSheetViewFactory.offersTripPlanning(in: nil) == false)
+        #expect(AppSheetViewFactory.offersTripPlanning(in: Fixtures.pugetSoundRegion))
+    }
+
+    // MARK: - Rental cluster drill-in
+
+    /// Tapping a row in the cluster list pushes the same `.rentalDetail` route a tap on a
+    /// lone map pin opens, rather than letting the list present its own sheet.
+    ///
+    /// The list *can* present one — it does on the UIKit surface — but on the panel that
+    /// sheet and `StackedSheetLayer`'s next route would be two presentations from one view.
+    /// SwiftUI permits one ("Currently, only presenting a single sheet is supported"), so
+    /// the trip planner pushed from inside the rental sheet stayed queued until the rider
+    /// dismissed the rental by hand.
+    @Test @MainActor
+    func `Selecting a rental from the cluster list pushes the rental detail route`() throws {
+        let application = buildApplication(queue: queue, dataLoader: MockDataLoader(testName: name))
+        let coordinator = SheetCoordinator<AppSheetRoute>(root: .home)
+        let factory = makeFactory(application: application, coordinator: coordinator)
+        let rental = try RentalFixtures.pedalBike(id: "b7")
+
+        coordinator.push(.rentalCluster(memberIDs: [rental.id, "b8"]))
+        factory.selectRentalFromCluster(rental)
+
+        #expect(coordinator.stackedRoutes == [
+            .rentalCluster(memberIDs: [rental.id, "b8"]),
+            .rentalDetail(rentalID: rental.id)
+        ])
+    }
+
+    /// The whole reported flow, as routes: cluster, then vehicle, then planner. Each is its
+    /// own stacked entry, which is what gives each one its own presenting host — the
+    /// property that was violated when the list presented the vehicle sheet itself.
+    @Test @MainActor
+    func `Cluster to vehicle to trip planner produces three distinct stacked sheets`() throws {
+        let application = buildApplication(queue: queue, dataLoader: MockDataLoader(testName: name))
+        let coordinator = SheetCoordinator<AppSheetRoute>(root: .home)
+        let factory = makeFactory(application: application, coordinator: coordinator)
+        let rental = try RentalFixtures.pedalBike(id: "b7")
+
+        coordinator.push(.rentalCluster(memberIDs: [rental.id]))
+        factory.selectRentalFromCluster(rental)
+        let planTrip = try #require(factory.planTripUsingRental)
+        planTrip(rental)
+
+        #expect(coordinator.stackedRoutes.count == 3)
+        guard case .tripPlanner(let request) = coordinator.stackedRoutes.last else {
+            Issue.record("Expected .tripPlanner on top, got \(String(describing: coordinator.stackedRoutes.last))")
+            return
+        }
+        #expect(request.transportMode == .transitBikeRental)
+        #expect(request.viaPoint?.latitude == rental.coordinate.latitude)
     }
 }

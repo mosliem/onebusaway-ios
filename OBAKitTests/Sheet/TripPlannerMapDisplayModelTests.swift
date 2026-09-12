@@ -7,6 +7,7 @@
 //  LICENSE file in the root directory of this source tree.
 //
 
+import Combine
 import CoreLocation
 import Foundation
 import MapKit
@@ -377,5 +378,133 @@ struct TripPlannerMapDisplayModelTests {
         #expect(heightFraction == 0.60) // Symmetric expansion: 0.30 each side
 
         // Does not trap on zero size
+    }
+
+    // MARK: - MapPinSelection round trip
+
+    /// The panel tags every trip pin with OTPKit's own opaque identifier and hands
+    /// it straight back on tap. This asserts the round trip end to end — the tag
+    /// the overlay builds is the identifier OTPKit gets back, unmodified.
+    @Test("Tapping a trip pin returns OTPKit's identifier verbatim")
+    func tripPinSelectionRoundTrip() {
+        let model = TripPlannerMapDisplayModel()
+        var selected: String?
+        model.onAnnotationSelected { selected = $0 }
+
+        model.addAnnotation(
+            coordinate: CLLocationCoordinate2D(latitude: 47.6, longitude: -122.3),
+            title: "Westlake",
+            subtitle: nil,
+            identifier: "station_from_0",
+            type: .origin,
+            routeName: nil,
+            routeBackgroundColor: nil,
+            routeTextColor: nil
+        )
+
+        guard let annotation = model.annotations.first else {
+            Issue.record("Expected the annotation to be recorded")
+            return
+        }
+        let tag = MapPinSelection.tripPlannerAnnotation(annotation.identifier)
+
+        guard case .tripPlannerAnnotation(let identifier) = tag else {
+            Issue.record("Expected .tripPlannerAnnotation")
+            return
+        }
+        model.handleAnnotationSelection(identifier: identifier)
+
+        #expect(selected == "station_from_0")
+    }
+
+    // MARK: - Deferred change notification
+
+    /// OTPKit drives this model from inside SwiftUI's update pass — `DirectionsSheetView`
+    /// calls into `MapCoordinator` from `onAppear` and from three `onChange` handlers — so
+    /// a synchronous publish here is "Publishing changes from within view updates is not
+    /// allowed" on every interaction with the directions sheet. The notification has to
+    /// land after the pass, and only the notification: reads stay synchronous.
+    @Test("Drawing does not notify observers synchronously")
+    func drawingDefersChangeNotification() {
+        let model = TripPlannerMapDisplayModel()
+        var notifications = 0
+        let cancellable = model.objectWillChange.sink { _ in notifications += 1 }
+        defer { cancellable.cancel() }
+
+        model.addRoute(
+            coordinates: [CLLocationCoordinate2D(latitude: 47.6, longitude: -122.3)],
+            color: .blue,
+            lineWidth: 4,
+            identifier: "leg_0",
+            lineDashPattern: nil
+        )
+
+        #expect(notifications == 0)
+        // The write itself is not deferred — the ambient-stop gate reads this in the same
+        // turn OTPKit draws.
+        #expect(model.routes.count == 1)
+        #expect(model.isShowingTrip)
+    }
+
+    /// One itinerary is dozens of provider calls — a halo and a line per leg, an annotation
+    /// per stop. They deserve one re-render between them, not one each.
+    @Test("A burst of drawing calls coalesces into a single notification")
+    func drawingBurstCoalescesIntoOneNotification() async {
+        let model = TripPlannerMapDisplayModel()
+        var notifications = 0
+        let cancellable = model.objectWillChange.sink { _ in notifications += 1 }
+        defer { cancellable.cancel() }
+
+        for index in 0..<10 {
+            model.addRoute(
+                coordinates: [CLLocationCoordinate2D(latitude: 47.6, longitude: -122.3)],
+                color: .blue,
+                lineWidth: 4,
+                identifier: "leg_\(index)",
+                lineDashPattern: nil
+            )
+        }
+        model.setRegion(
+            MKCoordinateRegion(center: CLLocationCoordinate2D(latitude: 47.6, longitude: -122.3),
+                               latitudinalMeters: 1000,
+                               longitudinalMeters: 1000),
+            animated: true
+        )
+
+        #expect(notifications == 0)
+
+        // Let the scheduled hop run.
+        await Task.yield()
+
+        #expect(notifications == 1)
+        #expect(model.routes.count == 10)
+    }
+
+    /// Clearing has to reach the map too, or a dismissed trip stays drawn.
+    @Test("Clearing notifies observers on the next turn")
+    func clearNotifiesAfterTheUpdatePass() async {
+        let model = TripPlannerMapDisplayModel()
+        model.addAnnotation(
+            coordinate: CLLocationCoordinate2D(latitude: 47.6, longitude: -122.3),
+            title: "Westlake",
+            subtitle: nil,
+            identifier: "station_from_0",
+            type: .origin,
+            routeName: nil,
+            routeBackgroundColor: nil,
+            routeTextColor: nil
+        )
+        await Task.yield()
+
+        var notifications = 0
+        let cancellable = model.objectWillChange.sink { _ in notifications += 1 }
+        defer { cancellable.cancel() }
+
+        model.clear()
+        #expect(notifications == 0)
+        #expect(model.isShowingTrip == false)
+
+        await Task.yield()
+        #expect(notifications == 1)
     }
 }
